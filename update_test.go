@@ -25,7 +25,7 @@ func TestVersionLess(t *testing.T) {
 	}
 	for _, c := range cases {
 		if got := versionLess(c.cur, c.latest); got != c.want {
-			t.Errorf("versionLess(%q,%q)=%v，想要 %v", c.cur, c.latest, got, c.want)
+			t.Errorf("versionLess(%q,%q)=%v, want %v", c.cur, c.latest, got, c.want)
 		}
 	}
 }
@@ -35,10 +35,10 @@ func TestParseSemver(t *testing.T) {
 		t.Fatalf("parseSemver v1.2.3 => %v %v", v, ok)
 	}
 	if v, ok := parseSemver("1.4.0-rc1"); !ok || v != [3]int{1, 4, 0} {
-		t.Fatalf("parseSemver 预发布后缀应被忽略 => %v %v", v, ok)
+		t.Fatalf("parseSemver should ignore prerelease suffix => %v %v", v, ok)
 	}
 	if _, ok := parseSemver("nightly"); ok {
-		t.Fatal("非法版本应解析失败")
+		t.Fatal("invalid version should fail to parse")
 	}
 }
 
@@ -56,10 +56,10 @@ func TestExtractBinary(t *testing.T) {
 	}
 	blob, _ := os.ReadFile(out)
 	if string(blob) != "BINARY-CONTENT" {
-		t.Fatalf("解出的内容不对: %q", blob)
+		t.Fatalf("extracted content is incorrect: %q", blob)
 	}
 	if err := extractBinary(tgz, "nonexistent", out); err == nil {
-		t.Fatal("成员不存在应报错")
+		t.Fatal("missing archive member should return an error")
 	}
 }
 
@@ -74,7 +74,7 @@ func TestSha256FromList(t *testing.T) {
 		t.Fatalf("sha256FromList => %q %v", got, err)
 	}
 	if _, err := sha256FromList(list, "missing.tar.gz"); err == nil {
-		t.Fatal("缺失条目应报错")
+		t.Fatal("missing checksum entry should return an error")
 	}
 }
 
