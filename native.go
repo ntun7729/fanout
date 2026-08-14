@@ -8,10 +8,10 @@ import (
 	"sync"
 )
 
-// Native 是 fanout 自己跑 Xray 的后端，用在本机没装 3x-ui 的场合。
+// Native is fanout's self-managed Xray backend, used when 3x-ui is not installed.
 //
-// 入站数据存在 native.json，Xray 的运行配置每次改动后整份重新生成。
-// 全量重写比增量改省心：配置是纯函数产物，不会出现改了一半的中间态。
+// Inbound data is stored in native.json and the full Xray configuration is
+// regenerated after every change. Full regeneration avoids partially applied state.
 type Native struct {
 	mu    sync.Mutex
 	dir   string
@@ -21,7 +21,7 @@ type Native struct {
 
 func openNative(workDir string) (*Native, error) {
 	if workDir == "" {
-		return nil, fmt.Errorf("自建模式缺少工作目录")
+		return nil, fmt.Errorf("native mode requires a working directory")
 	}
 	bin, err := findXray(workDir)
 	if err != nil {
@@ -36,7 +36,7 @@ func openNative(workDir string) (*Native, error) {
 		store: store,
 		proc:  &xrayProc{bin: bin, dir: workDir},
 	}
-	// 上次进程被强杀时遗留的 Xray 还占着入站端口，先收掉
+	// Clean up an Xray process left behind after a forced termination.
 	n.proc.reapOrphan()
 	return n, nil
 }
@@ -44,11 +44,11 @@ func openNative(workDir string) (*Native, error) {
 func (n *Native) Kind() string { return "native" }
 
 func (n *Native) Describe() string {
-	return fmt.Sprintf("fanout 自建 Xray（%s）", n.proc.bin)
+	return fmt.Sprintf("Built-in Xray (%s)", n.proc.bin)
 }
 
-// apply 重新生成配置并重启 Xray，然后落盘。
-// 调用方必须已持有 n.mu。
+// apply regenerates configuration, restarts Xray, and persists state.
+// The caller must hold n.mu.
 func (n *Native) apply(tunnels []*Tunnel) error {
 	cfg := buildXrayConfig(n.store.sorted(), tunnels)
 	path, err := writeXrayConfig(n.dir, cfg)
@@ -58,7 +58,7 @@ func (n *Native) apply(tunnels []*Tunnel) error {
 	if err := verifyXrayConfig(n.proc.bin, path); err != nil {
 		return err
 	}
-	// 没有入站时不必留着进程占资源
+	// No process is needed when there are no inbounds.
 	if len(cfg["inbounds"].([]any)) == 0 {
 		n.proc.stop()
 		return n.store.save(n.dir)
@@ -69,15 +69,14 @@ func (n *Native) apply(tunnels []*Tunnel) error {
 	return n.store.save(n.dir)
 }
 
-// OnTunnelsChanged 在隧道集合变化后重建配置。自建模式下出站直接由隧道列表
-// 推导，所以隧道一变就要重新生成，否则新出口没有对应的 socks 出站。
+// OnTunnelsChanged rebuilds configuration because native outbounds are derived directly from tunnels.
 func (n *Native) OnTunnelsChanged(tunnels []*Tunnel) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.apply(tunnels)
 }
 
-// Close 停掉自己拉起的 Xray。
+// Close stops the Xray process launched by fanout.
 func (n *Native) Close() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -106,7 +105,7 @@ func (n *Native) InboundDetail(id int, publicHost string) (*InboundDetail, error
 
 	ib := n.store.byID(id)
 	if ib == nil {
-		return nil, fmt.Errorf("入站 %d 不存在", id)
+		return nil, fmt.Errorf("inbound %d does not exist", id)
 	}
 	detail := &InboundDetail{
 		Inbound: Inbound{
@@ -159,10 +158,10 @@ func (n *Native) Bind(inboundTag string, hostname string, tunnels []*Tunnel) err
 			}
 		}
 		if target == nil {
-			return fmt.Errorf("节点 %s 没有运行中的隧道", hostname)
+			return fmt.Errorf("node %s has no running tunnel", hostname)
 		}
 		if target.Status != "up" {
-			return fmt.Errorf("节点 %s 的隧道还没连通（当前 %s）", hostname, target.Status)
+			return fmt.Errorf("tunnel for node %s is not connected yet (current status: %s)", hostname, target.Status)
 		}
 	}
 
@@ -174,7 +173,7 @@ func (n *Native) Bind(inboundTag string, hostname string, tunnels []*Tunnel) err
 		}
 	}
 	if found == nil {
-		return fmt.Errorf("入站 %s 不存在", inboundTag)
+		return fmt.Errorf("inbound %s does not exist", inboundTag)
 	}
 
 	if target == nil {
@@ -197,7 +196,7 @@ func (n *Native) Rebind(oldHost string, target *Tunnel, tunnels []*Tunnel) error
 			continue
 		}
 		ib.BoundTo = newTag
-		// 备注里带着旧出口的地区和 IP 尾段，换了节点要跟着改
+		// Update the remark suffix so it reflects the new exit.
 		ib.Remark = renameExitSuffix(ib.Remark, newLabel)
 	}
 	return n.apply(tunnels)
@@ -209,16 +208,15 @@ func (n *Native) ResyncOutbound(t *Tunnel, tunnels []*Tunnel) error {
 	return n.apply(tunnels)
 }
 
-// CloneToTunnels 以某个入站为模板，为每条指定隧道复制一个入站并绑好出口。
-//
-// 客户端凭据整套沿用模板：同一个 UUID 能走所有出口，用户只改端口。
+// CloneToTunnels clones an inbound for specified tunnels and binds each copy.
+// Client credentials are preserved so users only need to change the port to switch exits.
 func (n *Native) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunnel) ([]int, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	tpl := n.store.byID(templateID)
 	if tpl == nil {
-		return nil, fmt.Errorf("模板入站 %d 不存在", templateID)
+		return nil, fmt.Errorf("template inbound %d does not exist", templateID)
 	}
 
 	byHost := map[string]*Tunnel{}
@@ -246,8 +244,7 @@ func (n *Native) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunne
 			Network:  tpl.Network,
 			Path:     tpl.Path,
 			Host:     tpl.Host,
-			// 安全层必须跟着复制：漏掉的话从 REALITY/TLS 模板复制出来的
-			// 入站会变成明文，而分享链接照样标着模板的协议，很难发现
+			// Security must be cloned too; otherwise TLS/REALITY templates would silently become plaintext.
 			Security: tpl.Security,
 			TLS:      tpl.TLS,
 			Reality:  tpl.Reality,
@@ -262,7 +259,7 @@ func (n *Native) CloneToTunnels(templateID int, hosts []string, tunnels []*Tunne
 	}
 
 	if len(created) == 0 {
-		return created, fmt.Errorf("没有可用的隧道")
+		return created, fmt.Errorf("no available tunnels")
 	}
 	if err := n.apply(tunnels); err != nil {
 		return created, err
@@ -288,27 +285,25 @@ func (n *Native) DeleteInbounds(ids []int, tunnels []*Tunnel) error {
 	return n.apply(tunnels)
 }
 
-// UpdateInbound 改端口、备注与启停。
-//
-// 端口变了 inboundTag 也跟着变（tag 里含端口），所以路由规则要一起重写；
-// apply 是整份重建，天然覆盖了这点。
+// UpdateInbound changes port, remark, or enabled state. Changing a port also
+// changes inboundTag because the tag contains the port; full apply rewrites routing accordingly.
 func (n *Native) UpdateInbound(id int, patch InboundPatch, tunnels []*Tunnel) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	ib := n.store.byID(id)
 	if ib == nil {
-		return fmt.Errorf("入站 %d 不存在", id)
+		return fmt.Errorf("inbound %d does not exist", id)
 	}
 
 	if patch.Port != nil && *patch.Port != ib.Port {
 		port := *patch.Port
 		if port < 1 || port > 65535 {
-			return fmt.Errorf("端口 %d 不在合法范围", port)
+			return fmt.Errorf("port %d is outside the valid range", port)
 		}
 		for _, other := range n.store.Inbounds {
 			if other.ID != id && other.Port == port {
-				return fmt.Errorf("端口 %d 已被入站 %q 占用", port, other.Remark)
+				return fmt.Errorf("port %d is already used by inbound %q", port, other.Remark)
 			}
 		}
 		ib.Port = port
@@ -324,14 +319,14 @@ func (n *Native) UpdateInbound(id int, patch InboundPatch, tunnels []*Tunnel) er
 	return n.apply(tunnels)
 }
 
-// AddClient 给入站加一个客户端。同一入站上可以有多套凭据，便于分发给不同人。
+// AddClient adds another client credential to an inbound.
 func (n *Native) AddClient(id int, email string, tunnels []*Tunnel) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	ib := n.store.byID(id)
 	if ib == nil {
-		return fmt.Errorf("入站 %d 不存在", id)
+		return fmt.Errorf("inbound %d does not exist", id)
 	}
 
 	email = strings.TrimSpace(email)
@@ -340,7 +335,7 @@ func (n *Native) AddClient(id int, email string, tunnels []*Tunnel) error {
 	}
 	for _, c := range ib.Clients {
 		if c.Email == email {
-			return fmt.Errorf("客户端 %q 已存在", email)
+			return fmt.Errorf("client %q already exists", email)
 		}
 	}
 
@@ -354,18 +349,18 @@ func (n *Native) AddClient(id int, email string, tunnels []*Tunnel) error {
 	return n.apply(tunnels)
 }
 
-// DeleteClient 摘掉一个客户端。留下最后一个是有意的：
-// 没有任何客户端的入站在 Xray 里虽然合法，但谁也连不上，只会让人以为坏了。
+// DeleteClient removes one client. Keep at least one client so the inbound does
+// not remain valid-but-unusable and appear broken.
 func (n *Native) DeleteClient(id int, email string, tunnels []*Tunnel) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	ib := n.store.byID(id)
 	if ib == nil {
-		return fmt.Errorf("入站 %d 不存在", id)
+		return fmt.Errorf("inbound %d does not exist", id)
 	}
 	if len(ib.Clients) <= 1 {
-		return fmt.Errorf("这是最后一个客户端，删掉就没人能连了")
+		return fmt.Errorf("this is the last client; deleting it would leave nobody able to connect")
 	}
 
 	kept := make([]nativeClient, 0, len(ib.Clients))
@@ -375,20 +370,20 @@ func (n *Native) DeleteClient(id int, email string, tunnels []*Tunnel) error {
 		}
 	}
 	if len(kept) == len(ib.Clients) {
-		return fmt.Errorf("客户端 %q 不存在", email)
+		return fmt.Errorf("client %q does not exist", email)
 	}
 	ib.Clients = kept
 	return n.apply(tunnels)
 }
 
-// ResetClient 换一套新凭据，旧链接立即失效。
+// ResetClient generates new credentials so the old link stops working immediately.
 func (n *Native) ResetClient(id int, email string, tunnels []*Tunnel) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
 	ib := n.store.byID(id)
 	if ib == nil {
-		return fmt.Errorf("入站 %d 不存在", id)
+		return fmt.Errorf("inbound %d does not exist", id)
 	}
 	for i := range ib.Clients {
 		if ib.Clients[i].Email == email {
@@ -397,10 +392,10 @@ func (n *Native) ResetClient(id int, email string, tunnels []*Tunnel) error {
 			return n.apply(tunnels)
 		}
 	}
-	return fmt.Errorf("客户端 %q 不存在", email)
+	return fmt.Errorf("client %q does not exist", email)
 }
 
-// visionFlow 沿用入站已有客户端的 flow，让新加的客户端与其余保持一致。
+// visionFlow preserves the inbound's existing flow setting when adding a client.
 func visionFlow(ib *nativeInbound) string {
 	for _, c := range ib.Clients {
 		if c.Flow != "" {
@@ -410,10 +405,8 @@ func visionFlow(ib *nativeInbound) string {
 	return ""
 }
 
-// NewInboundSpec 是自建模式下新建入站的参数。
-//
-// 留空的字段都有合理默认：端口随机、备注按协议加端口自动生成、
-// 路径随机、REALITY 的密钥与 shortId 自动生成。
+// NewInboundSpec contains parameters for creating an inbound. Empty fields have
+// sensible defaults: random port/path, automatic remark, and generated REALITY keys/shortId.
 type NewInboundSpec struct {
 	Protocol string
 	Network  string
@@ -422,25 +415,25 @@ type NewInboundSpec struct {
 	Path     string
 	Host     string
 	Security string
-	// Vision 请求给 VLESS 客户端启用 xtls-rprx-vision
+	// Vision enables xtls-rprx-vision for VLESS clients.
 	Vision bool
 
-	// TLS：留空 CertFile 就生成自签证书
+	// TLS: an empty CertFile generates a self-signed certificate.
 	ServerName string
 	CertFile   string
 	KeyFile    string
 
 	// REALITY
 	Dest        string
-	ServerNames string // 逗号分隔，留空则从 Dest 推出来
+	ServerNames string // Comma-separated; empty derives the name from Dest.
 	ShortID     string
 	Fingerprint string
 }
 
-// nativeProtocols 是自建模式支持的协议，与前端下拉保持一致。
+// nativeProtocols lists protocols supported by native mode and the frontend selector.
 var nativeProtocols = map[string]bool{"vless": true, "vmess": true, "trojan": true}
 
-// CreateInbound 新建一个入站，端口留空时随机分配。
+// CreateInbound creates an inbound, allocating a random port when Port is zero.
 func (n *Native) CreateInbound(spec NewInboundSpec, tunnels []*Tunnel) (*CreatedInbound, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -490,7 +483,7 @@ func (n *Native) CreateInbound(spec NewInboundSpec, tunnels []*Tunnel) (*Created
 	n.store.Inbounds = append(n.store.Inbounds, ib)
 
 	if err := n.apply(tunnels); err != nil {
-		// 起不来就别把坏入站留在库里
+		// Roll back a bad inbound instead of leaving it persisted.
 		n.store.Inbounds = n.store.Inbounds[:len(n.store.Inbounds)-1]
 		n.store.NextID--
 		_ = n.apply(tunnels)
@@ -506,7 +499,7 @@ func (n *Native) CreateInbound(spec NewInboundSpec, tunnels []*Tunnel) (*Created
 	}, nil
 }
 
-// cloneRemark 给复制出来的入站起名，与 3x-ui 模式同一套规则。
+// cloneRemark names a cloned inbound using the same rule as 3x-ui mode.
 func cloneRemark(base, label string) string {
 	base = strings.TrimSpace(base)
 	if base == "" {
@@ -515,7 +508,7 @@ func cloneRemark(base, label string) string {
 	return base + "-" + label
 }
 
-// shareLink 生成客户端可直接导入的分享链接。
+// shareLink generates a client-importable share link.
 func shareLink(ib *nativeInbound, c nativeClient, host string) string {
 	net := ib.netOrTCP()
 	sec := ib.securityOrNone()
@@ -540,8 +533,7 @@ func shareLink(ib *nativeInbound, c nativeClient, host string) string {
 			if ib.TLS.ServerName != "" {
 				q.Set("sni", ib.TLS.ServerName)
 			}
-			// 自签证书验不过 CA。Xray 26.x 移除了 allowInsecure，
-			// 改用证书指纹让客户端固定信任这一张。
+			// Self-signed certificates use certificate pinning in modern Xray clients.
 			if ib.TLS.SelfSigned && ib.TLS.CertSha256 != "" {
 				q.Set("pinSHA256", ib.TLS.CertSha256)
 			}
@@ -551,8 +543,7 @@ func shareLink(ib *nativeInbound, c nativeClient, host string) string {
 			if len(ib.Reality.ServerNames) > 0 {
 				q.Set("sni", ib.Reality.ServerNames[0])
 			}
-			// pbk 是分享链接的通用写法，各家客户端都认；
-			// 注意 Xray 26.x 自己的配置文件里这个字段叫 password 而不是 publicKey
+			// pbk is the widely supported share-link field; newer Xray config uses password internally.
 			q.Set("pbk", ib.Reality.PublicKey)
 			if len(ib.Reality.ShortIDs) > 0 {
 				q.Set("sid", ib.Reality.ShortIDs[0])
@@ -573,7 +564,7 @@ func shareLink(ib *nativeInbound, c nativeClient, host string) string {
 	case "trojan":
 		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", c.Password, host, ib.Port, q.Encode(), frag)
 	case "vmess":
-		// vmess 的 base64 形式各家客户端解析不一，用通用的 URI 形式
+		// URI form is more consistently parsed across clients than VMess base64 variants.
 		q.Set("encryption", "auto")
 		return fmt.Sprintf("vmess://%s@%s:%d?%s#%s", c.ID, host, ib.Port, q.Encode(), frag)
 	default:
@@ -582,7 +573,7 @@ func shareLink(ib *nativeInbound, c nativeClient, host string) string {
 	}
 }
 
-// buildTLS 组装 TLS 配置。没给证书路径就生成一张自签的，落在 dir/certs 下。
+// buildTLS assembles TLS settings. If certificate paths are omitted, generate a self-signed certificate under dir/certs.
 func buildTLS(dir string, spec NewInboundSpec) (*tlsConfig, error) {
 	name := strings.TrimSpace(spec.ServerName)
 	if name == "" {
@@ -591,28 +582,27 @@ func buildTLS(dir string, spec NewInboundSpec) (*tlsConfig, error) {
 	conf := &tlsConfig{ServerName: name}
 
 	cert, key := strings.TrimSpace(spec.CertFile), strings.TrimSpace(spec.KeyFile)
-	// 只填一个多半是漏填，静默退回自签会让用户以为用上了自己的证书
+	// Supplying only one path is likely a mistake; do not silently fall back to self-signed TLS.
 	if (cert == "") != (key == "") {
-		return nil, fmt.Errorf("证书和私钥要成对填写，或者都留空用自签证书")
+		return nil, fmt.Errorf("certificate and private key must both be provided, or both left blank for a self-signed certificate")
 	}
 	if cert != "" && key != "" {
 		if _, err := os.Stat(cert); err != nil {
-			return nil, fmt.Errorf("证书文件不可读: %w", err)
+			return nil, fmt.Errorf("certificate file is not readable: %w", err)
 		}
 		if _, err := os.Stat(key); err != nil {
-			return nil, fmt.Errorf("私钥文件不可读: %w", err)
+			return nil, fmt.Errorf("private key file is not readable: %w", err)
 		}
 		conf.CertFile, conf.KeyFile = cert, key
 		return conf, nil
 	}
 
-	// 自签证书验不过 CA，靠链接里的证书指纹让客户端固定信任
 	c, k, err := selfSignedCert(dir, name)
 	if err != nil {
 		return nil, err
 	}
 	conf.CertFile, conf.KeyFile, conf.SelfSigned = c, k, true
-	// 指纹是自签证书唯一能让客户端验过的凭据，算不出来就没法生成可用链接
+	// The fingerprint is required for clients to trust the generated certificate.
 	fp, err := certFingerprint(c)
 	if err != nil {
 		return nil, err
@@ -621,13 +611,11 @@ func buildTLS(dir string, spec NewInboundSpec) (*tlsConfig, error) {
 	return conf, nil
 }
 
-// buildReality 组装 REALITY 配置，密钥和 shortId 都自动生成。
-// xrayBin 用来跑 `xray x25519` 生成密钥对。
+// buildReality assembles REALITY settings and generates keys and shortId automatically.
 func buildReality(xrayBin string, spec NewInboundSpec) (*realityConfig, error) {
 	dest := strings.TrimSpace(spec.Dest)
 	if dest == "" {
-		// REALITY 要跟 dest 完成一次真实 TLS1.3 握手，dest 不稳会让所有连接
-		// 静默回落。microsoft.com 在部分机房握手经常走不完，这里选更可靠的。
+		// REALITY must complete a real TLS 1.3 handshake with dest, so use a stable default.
 		dest = "www.tesla.com:443"
 	}
 	if !strings.Contains(dest, ":") {
@@ -641,7 +629,7 @@ func buildReality(xrayBin string, spec NewInboundSpec) (*realityConfig, error) {
 		}
 	}
 	if len(names) == 0 {
-		// 默认用 dest 的主机名：REALITY 要求 SNI 与被借用的站点一致
+		// SNI should match the borrowed destination host.
 		names = []string{strings.SplitN(dest, ":", 2)[0]}
 	}
 
@@ -650,7 +638,7 @@ func buildReality(xrayBin string, spec NewInboundSpec) (*realityConfig, error) {
 		return nil, err
 	}
 	if err := checkRealityDest(dest, names[0]); err != nil {
-		return nil, fmt.Errorf("REALITY 目标站点不可用，换一个 dest: %w", err)
+		return nil, fmt.Errorf("REALITY destination is unavailable; choose another dest: %w", err)
 	}
 
 	short := strings.TrimSpace(spec.ShortID)
