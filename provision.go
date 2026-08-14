@@ -8,20 +8,22 @@ import (
 	"time"
 )
 
-// ProvisionRequest 是"给我 N 个某地区的出口"这个意图。
+// ProvisionRequest expresses the intent to create N exits in a region.
 type ProvisionRequest struct {
-	Region     string // 国家码，空表示不限
+	Region     string // Country code; empty means any region.
 	Count      int
-	TemplateID int // 3x-ui 入站模板；0 表示只开隧道不建入站
+	TemplateID int // 3x-ui inbound template; 0 means create tunnels only.
 }
 
-// Provision 异步执行一次批量开出口，立刻返回作业句柄供界面轮询。
+// Provision starts a batch exit-provisioning operation asynchronously and
+// immediately returns a job handle for UI polling.
 //
-// 隧道并行拉起（每条都要等 openvpn 握手，串行会线性累加等待），
-// 面板侧的入站创建则统一放到最后串行做一次，因为每次改路由都要重启 Xray。
+// Tunnels start in parallel because each must wait for an OpenVPN handshake.
+// Panel-side inbound creation is performed serially at the end because every
+// routing change requires an Xray restart.
 func (m *Manager) Provision(req ProvisionRequest) (*Job, error) {
 	if req.Count < 1 {
-		return nil, fmt.Errorf("数量至少为 1")
+		return nil, fmt.Errorf("quantity must be at least 1")
 	}
 	picks, err := m.pickNodes(req.Region, req.Count)
 	if err != nil {
@@ -30,17 +32,17 @@ func (m *Manager) Provision(req ProvisionRequest) (*Job, error) {
 
 	labels := make([]string, 0, len(picks)+1)
 	for _, n := range picks {
-		labels = append(labels, regionLabel(n)+" 出口")
+		labels = append(labels, regionLabel(n)+" exit")
 	}
 	if req.TemplateID > 0 {
-		labels = append(labels, "创建节点链接")
+		labels = append(labels, "Create node links")
 	}
 
 	where := req.Region
 	if where == "" {
-		where = "任意地区"
+		where = "any region"
 	}
-	job := m.jobs.New(fmt.Sprintf("开 %d 个 %s 出口", len(picks), where), labels)
+	job := m.jobs.New(fmt.Sprintf("Create %d %s exits", len(picks), where), labels)
 
 	go m.runProvision(job, picks, req.TemplateID)
 	return job, nil
@@ -59,7 +61,7 @@ func (m *Manager) runProvision(job *Job, picks []Node, templateID int) {
 			continue
 		}
 		started[i] = t
-		job.Set(i, "running", "正在连接 "+node.HostName)
+		job.Set(i, "running", "Connecting "+node.HostName)
 
 		wg.Add(1)
 		go func(i int, t *Tunnel) {
@@ -86,11 +88,11 @@ func (m *Manager) runProvision(job *Job, picks []Node, templateID int) {
 		}
 	}
 	if len(hosts) == 0 {
-		job.Set(step, "failed", "没有连通的出口，跳过")
+		job.Set(step, "failed", "No connected exits; skipped")
 		return
 	}
 
-	job.Set(step, "running", fmt.Sprintf("为 %d 个出口建入站", len(hosts)))
+	job.Set(step, "running", fmt.Sprintf("Creating inbounds for %d exits", len(hosts)))
 	x, err := openPanel()
 	if err != nil {
 		job.Set(step, "failed", err.Error())
@@ -102,11 +104,11 @@ func (m *Manager) runProvision(job *Job, picks []Node, templateID int) {
 		job.Set(step, "failed", firstLine(err.Error()))
 		return
 	}
-	job.Set(step, "ok", fmt.Sprintf("已创建 %d 个入站", len(ports)))
+	job.Set(step, "ok", fmt.Sprintf("Created %d inbounds", len(ports)))
 }
 
-// waitUp 等一条隧道跑完 bringUp。bringUp 最多试 6 个候选节点，
-// 每个节点等 tun0 最长 40 秒，所以这里给足余量。
+// waitUp waits for a tunnel's bringUp process. bringUp tries at most six
+// candidate nodes and may wait up to 40 seconds for tun0 on each, so this allows margin.
 func (m *Manager) waitUp(t *Tunnel) {
 	const maxWait = 5 * time.Minute
 	deadline := time.Now().Add(maxWait)
@@ -118,7 +120,7 @@ func (m *Manager) waitUp(t *Tunnel) {
 	}
 }
 
-// pickNodes 按地区挑 count 个还没被占用的节点，速度优先。
+// pickNodes selects up to count unused nodes from the requested region, prioritizing speed.
 func (m *Manager) pickNodes(region string, count int) ([]Node, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -143,14 +145,14 @@ func (m *Manager) pickNodes(region string, count int) ([]Node, error) {
 	}
 	if len(out) == 0 {
 		if region != "" {
-			return nil, fmt.Errorf("%s 没有可用的空闲节点", region)
+			return nil, fmt.Errorf("no available unused nodes in %s", region)
 		}
-		return nil, fmt.Errorf("没有可用的空闲节点，试试重新拉取列表")
+		return nil, fmt.Errorf("no available unused nodes; try refreshing the list")
 	}
 	return out, nil
 }
 
-// RegionStat 是某个地区的可用节点概况，用于新建向导里的地区选择。
+// RegionStat summarizes available nodes in one region for the creation wizard.
 type RegionStat struct {
 	Code      string  `json:"code"`
 	Name      string  `json:"name"`
@@ -159,7 +161,7 @@ type RegionStat struct {
 	BestSpeed float64 `json:"best_speed_mbps"`
 }
 
-// Regions 汇总各地区还剩多少空闲节点，按可用数量降序。
+// Regions summarizes remaining unused nodes by region, sorted by availability.
 func (m *Manager) Regions() []RegionStat {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -201,7 +203,7 @@ func (m *Manager) Regions() []RegionStat {
 	return out
 }
 
-// regionLabel 给出口起一个人能读的名字。
+// regionLabel returns a human-readable label for an exit.
 func regionLabel(n Node) string {
 	if n.CountryCode != "" {
 		return n.CountryCode
@@ -209,7 +211,7 @@ func regionLabel(n Node) string {
 	return n.HostName
 }
 
-// firstLine 截取错误的第一行，界面里放得下。
+// firstLine truncates an error to its first line so it fits in the UI.
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '\n'); i > 0 {
 		return s[:i]

@@ -15,18 +15,19 @@ import (
 	"time"
 )
 
-// Auth 给管理界面加一层登录。
-// 口令存在工作目录下，首次启动自动生成，避免公网上裸奔。
+// Auth adds a login layer to the management interface.
+// The password is stored in the working directory and generated automatically
+// on first start so the service is not exposed publicly without protection.
 type Auth struct {
 	dir      string
 	password string
 	mu       sync.RWMutex
 	sessions map[string]time.Time
-	// 按来源 IP 记录登录失败，挡低速凭据喷洒
+	// Track login failures by source IP to slow credential spraying.
 	fails map[string]*loginFails
 }
 
-// loginFails 跟踪单个来源 IP 的连续失败。
+// loginFails tracks consecutive failures for one source IP.
 type loginFails struct {
 	count   int
 	last    time.Time
@@ -35,15 +36,17 @@ type loginFails struct {
 
 const sessionTTL = 12 * time.Hour
 
-// 登录失败节流：同一 IP 连续错 loginMaxFails 次后，锁 loginBlockFor。
-// 阈值给得宽松，正常用户偶尔输错不受影响；成功登录会清零。
+// Login throttling: block an IP for loginBlockFor after loginMaxFails
+// consecutive failures. The threshold is intentionally generous and a
+// successful login clears the counter.
 const (
 	loginMaxFails  = 8
 	loginBlockFor  = 2 * time.Minute
 	loginFailReset = 10 * time.Minute
 )
 
-// NewAuth 载入或生成访问口令。返回口令是否为本次新建。
+// NewAuth loads or generates the access password. The returned bool reports
+// whether the password was created during this call.
 func NewAuth(dir string) (*Auth, bool, error) {
 	path := filepath.Join(dir, "password")
 	created := false
@@ -55,7 +58,7 @@ func NewAuth(dir string) (*Auth, bool, error) {
 			return nil, false, gerr
 		}
 		if werr := os.WriteFile(path, []byte(pw+"\n"), 0600); werr != nil {
-			return nil, false, fmt.Errorf("写口令文件失败: %w", werr)
+			return nil, false, fmt.Errorf("failed to write password file: %w", werr)
 		}
 		blob = []byte(pw)
 		created = true
@@ -79,7 +82,7 @@ func randomToken(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// check 比对口令，用恒定时间比较避免时序泄漏。
+// check compares passwords in constant time to avoid timing leaks.
 func (a *Auth) check(pw string) bool {
 	a.mu.RLock()
 	cur := a.password
@@ -89,23 +92,23 @@ func (a *Auth) check(pw string) bool {
 	return subtle.ConstantTimeCompare(want[:], got[:]) == 1
 }
 
-// SetPassword 改访问口令并落盘。空口令拒绝，避免误改成无密码裸奔。
-// 改完不动已有会话：当前登录的浏览器不会被踢，新登录才用新口令。
+// SetPassword changes the access password and persists it. Empty passwords are
+// rejected. Existing sessions remain valid; the new password applies to new logins.
 func (a *Auth) SetPassword(pw string) error {
 	pw = strings.TrimSpace(pw)
 	if pw == "" {
-		return fmt.Errorf("口令不能为空")
+		return fmt.Errorf("password cannot be empty")
 	}
 	if len(pw) < 4 {
-		return fmt.Errorf("口令至少 4 位")
+		return fmt.Errorf("password must be at least 4 characters")
 	}
 	path := filepath.Join(a.dir, "password")
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(pw+"\n"), 0600); err != nil {
-		return fmt.Errorf("写口令文件失败: %w", err)
+		return fmt.Errorf("failed to write password file: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("保存口令失败: %w", err)
+		return fmt.Errorf("failed to save password: %w", err)
 	}
 	a.mu.Lock()
 	a.password = pw
@@ -113,7 +116,7 @@ func (a *Auth) SetPassword(pw string) error {
 	return nil
 }
 
-// issue 发一个会话 token。
+// issue creates a session token.
 func (a *Auth) issue() (string, error) {
 	tok, err := randomToken(16)
 	if err != nil {
@@ -121,7 +124,7 @@ func (a *Auth) issue() (string, error) {
 	}
 	a.mu.Lock()
 	a.sessions[tok] = time.Now().Add(sessionTTL)
-	// 顺手清掉过期会话
+	// Remove expired sessions while we are here.
 	for k, exp := range a.sessions {
 		if time.Now().After(exp) {
 			delete(a.sessions, k)
@@ -140,7 +143,8 @@ func (a *Auth) valid(tok string) bool {
 
 const sessionCookie = "fanout_session"
 
-// Wrap 保护一个 handler，未登录时 API 返回 401、页面跳登录。
+// Wrap protects a handler. Unauthenticated API requests receive 401; page
+// requests receive the login screen.
 func (a *Auth) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/login" {
@@ -152,7 +156,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "未登录"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "not logged in"})
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -160,7 +164,7 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// blocked 判断某来源 IP 是否处于登录冷却期。
+// blocked reports whether a source IP is currently in the login cooldown period.
 func (a *Auth) blocked(ip string) bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -168,13 +172,13 @@ func (a *Auth) blocked(ip string) bool {
 	return ok && time.Now().Before(f.blocked)
 }
 
-// recordFail 记一次失败，达到阈值就进入冷却。
+// recordFail records one failed login and starts a cooldown at the threshold.
 func (a *Auth) recordFail(ip string) {
 	now := time.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	f, ok := a.fails[ip]
-	// 距上次失败太久就重新计数，避免长期累积误伤
+	// Reset the counter after a long quiet period to avoid stale accumulation.
 	if !ok || (f.blocked.IsZero() && now.Sub(f.last) > loginFailReset) {
 		f = &loginFails{}
 		a.fails[ip] = f
@@ -185,7 +189,7 @@ func (a *Auth) recordFail(ip string) {
 		f.blocked = now.Add(loginBlockFor)
 		f.count = 0
 	}
-	// 顺手清掉早已过期的记录，别让 map 无限增长
+	// Remove old records so the map does not grow without bound.
 	for k, v := range a.fails {
 		if now.Sub(v.last) > loginFailReset && now.After(v.blocked) {
 			delete(a.fails, k)
@@ -193,15 +197,15 @@ func (a *Auth) recordFail(ip string) {
 	}
 }
 
-// clearFails 登录成功后清掉该 IP 的失败记录。
+// clearFails removes the source IP's failure history after a successful login.
 func (a *Auth) clearFails(ip string) {
 	a.mu.Lock()
 	delete(a.fails, ip)
 	a.mu.Unlock()
 }
 
-// clientIP 从 RemoteAddr 取来源 IP。服务直接监听公网端口、不在反代后，
-// 所以不采信 X-Forwarded-For 之类可伪造的头。
+// clientIP reads the source IP from RemoteAddr. The service listens directly
+// rather than behind a trusted reverse proxy, so spoofable forwarded headers are ignored.
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -218,12 +222,12 @@ func (a *Auth) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	ip := clientIP(r)
 	if a.blocked(ip) {
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "登录失败次数过多，请稍后再试"})
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many failed login attempts; please try again later"})
 		return
 	}
 	if !a.check(r.FormValue("password")) {
 		a.recordFail(ip)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "口令不对"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "incorrect password"})
 		return
 	}
 	a.clearFails(ip)
@@ -240,11 +244,11 @@ func (a *Auth) handleLogin(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
-	writeJSON(w, http.StatusOK, map[string]string{"ok": "已登录"})
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "logged in"})
 }
 
 const loginHTML = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -272,16 +276,16 @@ button{width:100%;margin-top:14px;background:#4a9eda;border:0;color:#0b0e12;
 <body>
 <form id="f">
   <h1>fanout</h1>
-  <label for="pw">访问口令</label>
+  <label for="pw">Access password</label>
   <input type="password" id="pw" autofocus autocomplete="current-password">
-  <button type="submit">进入</button>
+  <button type="submit">Sign In</button>
   <div class="err" id="err"></div>
 </form>
 <div class="links">
-  <a href="https://t.me/+ft-zI76oovgwNmRh" target="_blank" rel="noopener">交流群</a>
-  <a href="https://youtube.com/@joeyblog" target="_blank" rel="noopener">油管</a>
-  <a href="https://joeyblog.net" target="_blank" rel="noopener">博客</a>
-  <a href="https://github.com/byJoey/fanout" target="_blank" rel="noopener">GitHub</a>
+  <a href="https://t.me/+ft-zI76oovgwNmRh" target="_blank" rel="noopener">Telegram</a>
+  <a href="https://youtube.com/@joeyblog" target="_blank" rel="noopener">YouTube</a>
+  <a href="https://joeyblog.net" target="_blank" rel="noopener">Blog</a>
+  <a href="https://github.com/ntun7729/fanout" target="_blank" rel="noopener">GitHub</a>
 </div>
 <script>
 document.getElementById('f').onsubmit = async e => {
@@ -290,7 +294,7 @@ document.getElementById('f').onsubmit = async e => {
   const r = await fetch('login', {method:'POST', body});
   if(r.ok){ location.reload(); return; }
   const d = await r.json().catch(()=>({}));
-  document.getElementById('err').textContent = d.error || '登录失败';
+  document.getElementById('err').textContent = d.error || 'Login failed';
 };
 </script>
 </body>

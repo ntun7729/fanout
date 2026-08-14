@@ -7,8 +7,9 @@ import (
 	"path/filepath"
 )
 
-// persistedTunnel 是隧道在磁盘上的形态。
-// 只存重建所需的信息，运行态（netns、进程、监听）重启后重新建立。
+// persistedTunnel is the on-disk representation of a tunnel. Only information
+// required for reconstruction is stored; runtime state such as namespaces,
+// processes, and listeners is recreated after restart.
 type persistedTunnel struct {
 	Slot        int    `json:"slot"`
 	Port        int    `json:"port"`
@@ -16,7 +17,7 @@ type persistedTunnel struct {
 	CountryCode string `json:"country_code"`
 	Country     string `json:"country"`
 	Config      string `json:"config"`
-	// SOCKS5 凭据要存盘：用户已经把它分发给客户端了，重启后变掉等于全断
+	// SOCKS5 credentials must persist because users may already have distributed them.
 	SocksUser string `json:"socks_user,omitempty"`
 	SocksPass string `json:"socks_pass,omitempty"`
 }
@@ -27,12 +28,12 @@ type persistedState struct {
 
 func statePath(dir string) string { return filepath.Join(dir, "state.json") }
 
-// saveState 把当前隧道写入磁盘，供重启后恢复。
+// saveState writes current tunnels to disk for restoration after restart.
 func (m *Manager) saveState() error {
 	var st persistedState
 	for _, t := range m.Tunnels() {
-		// 只跳过用户主动停掉的。starting/failed 的隧道也要存：
-		// 它们正在重连或等着重试，漏存会让重启后凭空少几个出口。
+		// Skip only tunnels explicitly stopped by the user. starting/failed tunnels
+		// are retained because they may be reconnecting or waiting for another attempt.
 		if t.Status == "stopped" {
 			continue
 		}
@@ -59,8 +60,9 @@ func (m *Manager) saveState() error {
 	return os.Rename(tmp, statePath(m.workDir))
 }
 
-// restoreState 读回上次的隧道并逐条拉起。
-// 节点配置一并存了盘，所以即使 VPN Gate 列表里该节点已消失也能重建。
+// restoreState reads saved tunnels and starts each one. Node configuration is
+// persisted too, so a tunnel can be reconstructed even if that node has since
+// disappeared from the current VPN Gate list.
 func (m *Manager) restoreState() (int, error) {
 	blob, err := os.ReadFile(statePath(m.workDir))
 	if os.IsNotExist(err) {
@@ -72,10 +74,11 @@ func (m *Manager) restoreState() (int, error) {
 
 	var st persistedState
 	if err := json.Unmarshal(blob, &st); err != nil {
-		return 0, fmt.Errorf("解析状态文件失败: %w", err)
+		return 0, fmt.Errorf("failed to parse state file: %w", err)
 	}
 
-	// 从当前节点列表补回地区、延迟等元数据；节点已下线时退回存盘的最小信息
+	// Fill region, latency, and other metadata from the current node list. If the
+	// node is gone, fall back to the minimal information stored on disk.
 	known := map[string]Node{}
 	for _, n := range m.nodes {
 		known[n.HostName] = n
@@ -84,7 +87,7 @@ func (m *Manager) restoreState() (int, error) {
 	for _, p := range st.Tunnels {
 		node, ok := known[p.HostName]
 		if !ok {
-			// 节点已从 VPN Gate 列表消失，用存盘的信息重建
+			// The node disappeared from VPN Gate; reconstruct it from persisted data.
 			node = Node{
 				HostName:    p.HostName,
 				CountryCode: p.CountryCode,
@@ -92,12 +95,12 @@ func (m *Manager) restoreState() (int, error) {
 			}
 		}
 		node.Config = p.Config
-		// 从旧版本升上来的状态文件没有凭据字段，补一套新的
+		// State files from older versions have no credential fields, so generate a set.
 		cred := SocksCred{User: p.SocksUser, Pass: p.SocksPass}
 		if cred.User == "" || cred.Pass == "" {
 			gen, err := newSocksCred()
 			if err != nil {
-				return 0, fmt.Errorf("生成 SOCKS5 凭据失败: %w", err)
+				return 0, fmt.Errorf("failed to generate SOCKS5 credentials: %w", err)
 			}
 			cred = gen
 		}

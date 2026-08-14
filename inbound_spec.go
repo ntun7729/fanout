@@ -5,8 +5,9 @@ import (
 	"strings"
 )
 
-// normalizedSpec 是 NewInboundSpec 过完校验、补完默认值之后的样子。
-// 两种后端都从这里出发：自建模式落成 nativeInbound，3x-ui 模式转成面板的 add 载荷。
+// normalizedSpec is a NewInboundSpec after validation and default values have
+// been applied. Both backends start here: native mode turns it into a
+// nativeInbound, while 3x-ui converts it into the panel's add payload.
 type normalizedSpec struct {
 	Protocol string
 	Network  string
@@ -18,40 +19,40 @@ type normalizedSpec struct {
 	Flow     string
 }
 
-// normalizeInboundSpec 校验协议组合并补上默认值。
+// normalizeInboundSpec validates protocol combinations and fills defaults.
 //
-// used 是已被占用的端口集合；端口留空时从中避开随机挑一个。
-// 这段逻辑对两种后端完全一致，所以从 Native.CreateInbound 里抽出来共用，
-// 免得 3x-ui 那边再写一份走样的校验。
+// used contains ports that are already occupied. If no port is supplied, a
+// random unused port is selected. This logic is shared by both backends so the
+// 3x-ui path cannot drift from native-mode validation.
 func normalizeInboundSpec(spec NewInboundSpec, used map[int]bool) (*normalizedSpec, error) {
 	proto := strings.ToLower(strings.TrimSpace(spec.Protocol))
 	if proto == "" {
 		proto = "vless"
 	}
 	if !nativeProtocols[proto] {
-		return nil, fmt.Errorf("不支持的协议 %q", spec.Protocol)
+		return nil, fmt.Errorf("unsupported protocol %q", spec.Protocol)
 	}
 	network := strings.ToLower(strings.TrimSpace(spec.Network))
 	if network == "" {
 		network = "tcp"
 	}
 	if !nativeNetworks[network] {
-		return nil, fmt.Errorf("不支持的传输方式 %q", spec.Network)
+		return nil, fmt.Errorf("unsupported transport %q", spec.Network)
 	}
 	security := strings.ToLower(strings.TrimSpace(spec.Security))
 	if security == "" {
 		security = "none"
 	}
 	if !nativeSecurities[security] {
-		return nil, fmt.Errorf("不支持的安全层 %q", spec.Security)
+		return nil, fmt.Errorf("unsupported security layer %q", spec.Security)
 	}
-	// REALITY 靠模仿 TLS 握手工作，套在 ws/grpc 这类已有自己头部的传输上没有意义，
-	// Xray 也不接受这种组合
+	// REALITY works by imitating a TLS handshake. It is not meaningful on
+	// transports with their own framing, and Xray rejects those combinations.
 	if security == "reality" && network != "tcp" && network != "xhttp" && network != "grpc" {
-		return nil, fmt.Errorf("REALITY 不支持 %s 传输", network)
+		return nil, fmt.Errorf("REALITY does not support %s transport", network)
 	}
-	// VMess 自带加密，但 TLS 在这里是为了流量伪装而不是加密强度，
-	// vmess+ws+tls 是很常见的组合，不该拦。
+	// VMess includes its own encryption, but TLS here is primarily for traffic
+	// camouflage rather than cipher strength; vmess+ws+tls is a valid common combination.
 
 	port := spec.Port
 	if port == 0 {
@@ -61,7 +62,7 @@ func normalizeInboundSpec(spec NewInboundSpec, used map[int]bool) (*normalizedSp
 		}
 		port = p
 	} else if used[port] {
-		return nil, fmt.Errorf("端口 %d 已被别的入站占用", port)
+		return nil, fmt.Errorf("port %d is already used by another inbound", port)
 	}
 
 	path := strings.TrimSpace(spec.Path)
@@ -82,7 +83,7 @@ func normalizeInboundSpec(spec NewInboundSpec, used map[int]bool) (*normalizedSp
 	flow := ""
 	if spec.Vision {
 		if !visionCapable(proto, network, security) {
-			return nil, fmt.Errorf("xtls-rprx-vision 只能用于 VLESS + TCP + TLS/REALITY")
+			return nil, fmt.Errorf("xtls-rprx-vision can only be used with VLESS + TCP + TLS/REALITY")
 		}
 		flow = "xtls-rprx-vision"
 	}

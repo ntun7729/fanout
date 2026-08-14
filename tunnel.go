@@ -11,16 +11,16 @@ import (
 	"time"
 )
 
-// SocksCred 是一条隧道的 SOCKS5 访问凭据。
+// SocksCred contains the SOCKS5 access credentials for one tunnel.
 //
-// 每条隧道一套独立凭据：泄露一条不会连累其他出口，
-// 换节点时也能只重置这一条而不影响已分发的其他配置。
+// Each tunnel has independent credentials so one leak does not expose every
+// exit, and credentials can be reset for one tunnel without affecting others.
 type SocksCred struct {
 	User string `json:"user"`
 	Pass string `json:"pass"`
 }
 
-// Tunnel 是一条运行中的隧道：一个 netns + 一个 openvpn 进程 + 一个本地 SOCKS5 端口。
+// Tunnel is one running tunnel: a network namespace, an OpenVPN process, and a local SOCKS5 port.
 type Tunnel struct {
 	Slot   int       `json:"slot"`
 	Port   int       `json:"port"`
@@ -48,12 +48,12 @@ func run(name string, args ...string) error {
 	return nil
 }
 
-// runQuiet 执行清理类命令，忽略"本来就不存在"这类错误。
+// runQuiet executes cleanup commands and ignores errors such as resources already being absent.
 func runQuiet(name string, args ...string) {
 	_ = exec.Command(name, args...).Run()
 }
 
-// setupNetns 建立 netns 与 veth 链路，并配好 NAT 与转发放行。
+// setupNetns creates the network namespace and veth link, then configures NAT and forwarding.
 func (t *Tunnel) setupNetns() error {
 	ns, sub := t.nsName(), t.subnet()
 	veth, peer := fmt.Sprintf("fov%d", t.Slot), fmt.Sprintf("fop%d", t.Slot)
@@ -88,13 +88,13 @@ func (t *Tunnel) setupNetns() error {
 		return err
 	}
 
-	// netns 内的 DNS，仅用于 openvpn 解析远端主机名
+	// DNS inside the namespace is used only by OpenVPN to resolve remote hostnames.
 	nsDir := filepath.Join("/etc/netns", ns)
 	if err := os.MkdirAll(nsDir, 0755); err != nil {
-		return fmt.Errorf("创建 %s 失败: %w", nsDir, err)
+		return fmt.Errorf("failed to create %s: %w", nsDir, err)
 	}
 	if err := os.WriteFile(filepath.Join(nsDir, "resolv.conf"), []byte("nameserver 8.8.8.8\n"), 0644); err != nil {
-		return fmt.Errorf("写 resolv.conf 失败: %w", err)
+		return fmt.Errorf("failed to write resolv.conf: %w", err)
 	}
 
 	cidr := sub + ".0/30"
@@ -104,7 +104,7 @@ func (t *Tunnel) setupNetns() error {
 	return nil
 }
 
-// ensureRule 幂等追加一条 iptables 规则。
+// ensureRule idempotently appends an iptables rule.
 func ensureRule(table, chain string, spec ...string) {
 	check := append([]string{"-w", "5", "-t", table, "-C", chain}, spec...)
 	if exec.Command("iptables", check...).Run() == nil {
@@ -114,8 +114,8 @@ func ensureRule(table, chain string, spec ...string) {
 	runQuiet("iptables", add...)
 }
 
-// ensureRuleInsert 幂等插入规则到链首。
-// FORWARD 链末尾常有兜底 REJECT，必须插到最前面才生效。
+// ensureRuleInsert idempotently inserts a rule at the start of a chain. FORWARD
+// chains often end in a catch-all REJECT, so fanout rules must be inserted first.
 func ensureRuleInsert(table, chain string, spec ...string) {
 	check := append([]string{"-w", "5", "-t", table, "-C", chain}, spec...)
 	if exec.Command("iptables", check...).Run() == nil {
@@ -135,16 +135,16 @@ func (t *Tunnel) teardownNetns() {
 	runQuiet("iptables", "-w", "5", "-D", "FORWARD", "-d", cidr, "-j", "ACCEPT")
 }
 
-// startOpenVPN 在 netns 内拉起 openvpn，并等待 tun0 拿到地址。
+// startOpenVPN starts OpenVPN inside the namespace and waits for tun0 to receive an address.
 func (t *Tunnel) startOpenVPN(dir string) error {
 	ns := t.nsName()
 	cfgPath := filepath.Join(dir, ns+".ovpn")
 	if err := os.WriteFile(cfgPath, []byte(t.Node.Config), 0600); err != nil {
-		return fmt.Errorf("写配置失败: %w", err)
+		return fmt.Errorf("failed to write configuration: %w", err)
 	}
 	authPath := filepath.Join(dir, "auth.txt")
 	if err := os.WriteFile(authPath, []byte("vpn\nvpn\n"), 0600); err != nil {
-		return fmt.Errorf("写凭据失败: %w", err)
+		return fmt.Errorf("failed to write credentials: %w", err)
 	}
 
 	logPath := filepath.Join(dir, ns+".log")
@@ -160,12 +160,12 @@ func (t *Tunnel) startOpenVPN(dir string) error {
 		"--log", logPath,
 	)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动 openvpn 失败: %w", err)
+		return fmt.Errorf("failed to start OpenVPN: %w", err)
 	}
 	t.ovpn = cmd
-	go cmd.Wait() // 回收子进程，避免僵尸
+	go cmd.Wait() // Reap the child process to avoid zombies.
 
-	// openvpn 建好 tun0 前 SOCKS5 无法正常出网，这里等它就绪
+	// SOCKS5 cannot route through the VPN until OpenVPN has created tun0.
 	deadline := time.Now().Add(40 * time.Second)
 	for time.Now().Before(deadline) {
 		if out, err := exec.Command("ip", "netns", "exec", ns, "ip", "-4", "addr", "show", "tun0").Output(); err == nil {
@@ -174,19 +174,18 @@ func (t *Tunnel) startOpenVPN(dir string) error {
 			}
 		}
 		if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-			return fmt.Errorf("openvpn 提前退出，详见 %s", logPath)
+			return fmt.Errorf("OpenVPN exited early; see %s", logPath)
 		}
 		time.Sleep(time.Second)
 	}
-	return fmt.Errorf("等待 tun0 就绪超时，详见 %s", logPath)
+	return fmt.Errorf("timed out waiting for tun0; see %s", logPath)
 }
 
-// serve 在母机上监听 SOCKS5 端口，出站连接则在 netns 内建立。
-// 监听必须留在母机侧：netns 内的 loopback 与母机彼此独立，
-// 监听在 netns 里的话外部根本连不上。
+// serve listens for SOCKS5 on the host while creating outbound connections
+// inside the namespace. The listener must remain on the host because namespace
+// loopback is isolated and would not be reachable externally.
 func (t *Tunnel) serve() error {
-	// 端口要尽量保持不变，否则用户已经分发出去的客户端配置会失效。
-	// 进程刚重启时旧监听可能还在 TIME_WAIT，这里给几秒重试窗口。
+	// Keep the assigned port whenever possible so distributed client configuration remains valid.
 	var ln net.Listener
 	var err error
 	for i := 0; i < 6; i++ {
@@ -197,14 +196,14 @@ func (t *Tunnel) serve() error {
 		time.Sleep(time.Second)
 	}
 	if err != nil {
-		// 确实被别的进程长期占用了，才换端口
+		// Only switch ports when another process is genuinely holding the old one.
 		port, perr := freeRandomPort(map[int]bool{t.Port: true})
 		if perr != nil {
-			return fmt.Errorf("监听 %d 失败且无备用端口: %w", t.Port, err)
+			return fmt.Errorf("failed to listen on %d and no fallback port is available: %w", t.Port, err)
 		}
 		ln, err = net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
 		if err != nil {
-			return fmt.Errorf("监听 %d 失败: %w", port, err)
+			return fmt.Errorf("failed to listen on %d: %w", port, err)
 		}
 		t.Port = port
 	}
@@ -217,7 +216,7 @@ func (t *Tunnel) serve() error {
 			if err != nil {
 				return
 			}
-			// 每次连接现取凭据：改口令后不必重建监听，新连接立刻按新凭据校验
+			// Read credentials per connection so changes apply immediately without rebinding the listener.
 			cred := t.credential()
 			go serveSocks(conn, &cred, dial)
 		}
@@ -225,36 +224,36 @@ func (t *Tunnel) serve() error {
 	return nil
 }
 
-// credential 取一份凭据副本，避免读写并发。
+// credential returns a credentials copy while avoiding concurrent reads/writes.
 func (t *Tunnel) credential() SocksCred {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.Cred
 }
 
-// setCredential 换掉这条隧道的 SOCKS5 凭据。已建立的连接不受影响，
-// 新连接立即按新凭据校验。
+// setCredential replaces this tunnel's SOCKS5 credentials. Existing sessions
+// are unaffected; new connections use the new credentials immediately.
 func (t *Tunnel) setCredential(c SocksCred) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.Cred = c
 }
 
-// probeExitIP 通过隧道查询出口 IP，用于确认这条隧道确实换了 IP。
+// probeExitIP queries the exit IP through the tunnel to verify that the VPN is active.
 func (t *Tunnel) probeExitIP() (string, error) {
 	out, err := exec.Command("ip", "netns", "exec", t.nsName(),
 		"curl", "-s", "--max-time", "15", "http://api.ipify.org").Output()
 	if err != nil {
-		return "", fmt.Errorf("查询出口 IP 失败: %w", err)
+		return "", fmt.Errorf("failed to query exit IP: %w", err)
 	}
 	ip := strings.TrimSpace(string(out))
 	if net.ParseIP(ip) == nil {
-		return "", fmt.Errorf("出口 IP 返回异常: %q", ip)
+		return "", fmt.Errorf("invalid exit IP response: %q", ip)
 	}
 	return ip, nil
 }
 
-// stop 停止这条隧道并清理它占用的所有资源。
+// stop stops this tunnel and releases all of its runtime resources.
 func (t *Tunnel) stop() {
 	t.mu.Lock()
 	defer t.mu.Unlock()

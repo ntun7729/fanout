@@ -11,13 +11,14 @@ import (
 	"sync"
 )
 
-// WebSettings 是管理界面自身的可改配置：监听端口、监听地址（本地/全接口）。
-// 落盘持久化，界面改完重启监听即时生效。访问口令与访问路径各有专门的文件
-// （password / basepath），不放这里，但都能在设置面板里改。
+// WebSettings contains management UI settings that can be changed at runtime:
+// listen port and listen address. Settings are persisted and listener changes
+// take effect immediately. The access password and path use their own files
+// (password / basepath) but are also editable from the Settings panel.
 type WebSettings struct {
-	// Port 是管理界面监听端口。
+	// Port is the management UI listen port.
 	Port int `json:"port"`
-	// ListenAddr 是监听地址：空或 0.0.0.0 表示所有网卡；127.0.0.1 表示只本机。
+	// ListenAddr is empty or 0.0.0.0 for all interfaces, or 127.0.0.1 for localhost only.
 	ListenAddr string `json:"listen_addr"`
 }
 
@@ -29,11 +30,11 @@ var (
 
 func webSettingsFilePath(dir string) string { return filepath.Join(dir, "settings.json") }
 
-// loadWebSettings 读盘并返回当前配置。
+// loadWebSettings reads and returns the current configuration.
 //
-// portExplicit 表示用户在命令行显式给了 -web。界面上改过端口之后会落盘，
-// 之前这里一律以盘上为准，导致再带 -web 启动会被静默忽略——用户敲了参数却
-// 连不上，也没有任何提示。显式指定时以命令行为准并写回，让参数说话算话。
+// portExplicit means -web was explicitly supplied on the command line. UI port
+// changes are persisted, but an explicit command-line value must take precedence
+// and be written back so the requested parameter is never silently ignored.
 func loadWebSettings(dir string, defaultPort int, portExplicit bool) (WebSettings, error) {
 	webSettingsPath = webSettingsFilePath(dir)
 
@@ -88,7 +89,8 @@ func saveWebSettings() error {
 	return os.Rename(tmp, webSettingsPath)
 }
 
-// normalizeListenAddr 把用户填的监听地址规整成合法值：空 / 0.0.0.0 / 127.0.0.1 / 具体 IP。
+// normalizeListenAddr normalizes a user-entered address to an allowed value:
+// empty / 0.0.0.0 / 127.0.0.1 / a specific valid IP.
 func normalizeListenAddr(addr string) (string, error) {
 	addr = strings.TrimSpace(addr)
 	if addr == "" || addr == "0.0.0.0" || strings.EqualFold(addr, "all") {
@@ -97,18 +99,18 @@ func normalizeListenAddr(addr string) (string, error) {
 	if ip := net.ParseIP(addr); ip != nil {
 		return addr, nil
 	}
-	return "", fmt.Errorf("监听地址必须是合法 IP，或留空表示所有网卡")
+	return "", fmt.Errorf("listen address must be a valid IP, or left blank for all interfaces")
 }
 
-// validatePort 校验端口范围。
+// validatePort validates the TCP port range.
 func validatePort(p int) error {
 	if p < 1 || p > 65535 {
-		return fmt.Errorf("端口必须在 1-65535 之间")
+		return fmt.Errorf("port must be between 1 and 65535")
 	}
 	return nil
 }
 
-// listenAddrString 拼出 net.Listen 用的地址串。
+// listenAddrString builds the address string passed to net.Listen.
 func (s WebSettings) listenAddrString() string {
 	return net.JoinHostPort(s.ListenAddr, strconv.Itoa(s.Port))
 }

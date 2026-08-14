@@ -1,16 +1,17 @@
 [Unit]
-Description=fanout - VPN Gate 出口扇出网关
+Description=fanout - VPN Gate exit fan-out gateway
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-# 端口由 /var/lib/fanout/settings.json 决定（界面和 f 菜单都改它）。
-# 这里不写 -web，否则改完端口一重启就被拽回旧值。
+# The port is controlled by /var/lib/fanout/settings.json and can be changed
+# from both the Web UI and the f menu. Do not add -web here or restarts would
+# restore an old port value.
 ExecStart=/usr/local/bin/fanout -dir /var/lib/fanout
 Restart=on-failure
 RestartSec=5
-# 退出时给足时间清理 netns 与 openvpn 子进程
+# Allow enough time to clean up network namespaces and OpenVPN child processes.
 TimeoutStopSec=30
 KillMode=mixed
 

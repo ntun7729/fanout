@@ -2,176 +2,164 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-把 VPN Gate 的公共节点变成本地 SOCKS5 端口：一个端口一个出口 IP。
-再给每个出口挂一个节点链接，客户端连哪个端口就从哪个国家出去。
+Turn public VPN Gate nodes into local SOCKS5 ports: one port, one exit IP.
+Then attach a proxy node link to each exit, so clients connected to different ports leave through different countries.
 
-节点链接有三种管法：同机装了 3x-ui 或 xray-cf-lite 就接管它们的入站，
-都没装则 fanout 自己跑 Xray，建站、改站、发链接都在同一个界面里完成。
+There are three ways to manage node links. If 3x-ui or xray-cf-lite is installed on the same machine, fanout takes over their inbounds.
+If neither is installed, fanout runs Xray itself. Creating nodes, editing nodes, and exporting links are all handled from the same interface.
 
-![主界面](https://images.joeyblog.net/2026/7/27/fanout-dashboard.png)
+![Main dashboard](https://images.joeyblog.net/2026/7/27/fanout-dashboard.png)
 
-四条隧道跑在一台机器上，四个端口对应四个国家的出口，母机自己的 IP 不受影响：
+Four tunnels can run on one machine, with four ports mapped to four countries. The host machine's own IP and routing remain unaffected:
 
-![出口验证](https://images.joeyblog.net/2026/7/26/fanout-6-exit-ip.png)
+![Exit verification](https://images.joeyblog.net/2026/7/26/fanout-6-exit-ip.png)
 
-## 原理
+## How it works
 
-每个节点跑在独立的 network namespace 里，netns 内启动官方 openvpn 客户端。
-SOCKS5 监听在母机，出站连接用 `setns` 切进对应 netns 建立。
+Each node runs inside its own network namespace, where the official OpenVPN client is started.
+SOCKS5 listens on the host, and outbound connections use `setns` to enter the matching network namespace.
 
-这样做的好处：VPN 的路由劫持只影响自己的 netns，不会切断母机的网络；
-多个节点互不干扰，各自一个出口 IP。
+This keeps VPN route changes isolated to each namespace instead of affecting the host network.
+Multiple nodes do not interfere with one another, and each gets its own exit IP.
 
 ```
-客户端 ──> 母机 SOCKS5 :随机端口 ──> netns foN ──> openvpn ──> VPN Gate 节点
+Client --> Host SOCKS5 :random-port --> netns foN --> openvpn --> VPN Gate node
 ```
 
-## 安装
+## Installation
 
-需要 root，Linux（依赖 netns）。
+Requires root on Linux because network namespaces are used.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ntun7729/fanout/main/install.sh)
 ```
 
-会自动下载对应架构的预编译二进制。也可以 clone 仓库后在源码目录运行同一个脚本，
-那样会从源码编译（需要 Go 1.21+）。
+The installer automatically downloads the prebuilt binary for the current architecture. You can also clone the repository and run the same script from the source directory; in that case it builds from source and requires Go 1.21+.
 
-依赖（openvpn / curl / openssl / iproute / iptables）会按发行版自动装，
-apt、dnf、yum、pacman、apk、zypper 都认。没装 3x-ui 时还会顺带下载一份
-Xray 到 `/var/lib/fanout/bin/`，装了则跳过，入站交给面板管。
+Dependencies such as OpenVPN, curl, OpenSSL, iproute, and iptables are installed automatically for supported distributions.
+The installer recognizes apt, dnf, yum, pacman, apk, and zypper. If 3x-ui is not installed, it also downloads Xray into `/var/lib/fanout/bin/`. If 3x-ui is installed, that step is skipped and the panel manages the inbounds.
 
-服务用 systemd 或 OpenRC 都能装，装完自动开机自启。
+The service can be installed with either systemd or OpenRC and is enabled to start automatically at boot.
 
-**Alpine** 默认不带 bash，先装一下：
+**Alpine** does not include bash by default, so install it first:
 
 ```bash
 apk add bash curl
-bash <(curl -fsSL https://raw.githubusercontent.com/byJoey/fanout/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/ntun7729/fanout/main/install.sh)
 ```
 
-另外 fanout 要在 netns 里跑 openvpn，**宿主必须放开 `/dev/net/tun`**。
-不少 LXC 小鸡没给这个权限，`ls /dev/net/tun` 不存在且 `mknod` 报
-Operation not permitted 的话，这台机器用不了，跟发行版无关。
+fanout runs OpenVPN inside network namespaces, so the **host must expose `/dev/net/tun`**.
+Many LXC containers do not have this permission. If `ls /dev/net/tun` shows that it does not exist and `mknod` returns `Operation not permitted`, fanout cannot run on that machine regardless of distribution.
 
-装完敲 `f` 打开管理菜单：
+After installation, run `f` to open the management menu:
 
-![管理菜单](https://images.joeyblog.net/2026/7/26/fanout-7-menu.png)
+![Management menu](https://images.joeyblog.net/2026/7/26/fanout-7-menu.png)
 
-装完会打印管理界面地址、访问路径和口令：
-
-```
-管理界面  http://<你的IP>:8899/gwPuWHvaNr/
-访问口令  f81120ac328d11c11b
-```
-
-路径和口令都是随机生成的，分别存在 `/var/lib/fanout/basepath` 和
-`/var/lib/fanout/password`。路径不对一律返回 404，扫端口的看不到这里跑着什么。
-
-## 使用
-
-界面以**出口**为单位：一行就是一条隧道加上挂在它上面的节点链接。
-
-点「新建出口」，选地区和数量，再选一个已有节点作模板，提交后 fanout 会并行
-拉起隧道、为每个出口复制一份节点链接并绑好，进度按目标逐条回报。原来要手点
-五步跨两栏的事，现在一次点击十几秒完成。
-
-![新建出口](https://images.joeyblog.net/2026/7/27/fanout-wizard.png)
-
-每行右侧两个按钮：换一个节点（出口 IP 变、端口不变，已分发的客户端配置不用改），
-或者停掉这个出口。
-
-点节点名进详情，可以改端口、备注、启停，管理客户端，以及改绑到别的出口：
-
-![节点详情](https://images.joeyblog.net/2026/7/27/fanout-detail.png)
-
-一个入站可以挂多套客户端凭据，分发给不同的人；每套都能单独重置，
-重置后旧链接立即失效。
-
-「导出链接」一次性拿到所有节点链接：
-
-![导出链接](https://images.joeyblog.net/2026/7/27/fanout-export.png)
-
-### 节点链接从哪来
-
-同机装了 3x-ui 就直接接管面板里的入站，面板端口、路径、API token 全自动探测，
-开了 SSL 也能识别。没装 3x-ui 时 fanout 自己跑一个 Xray，界面上多一个「新建节点」
-按钮，可以选协议（VLESS / VMess / Trojan）、传输（TCP / WebSocket / gRPC /
-HTTPUpgrade / XHTTP）和安全层（无 / TLS / REALITY）。
-
-![新建节点](https://images.joeyblog.net/2026/7/27/fanout-newnode.png)
-
-REALITY 的密钥对和 shortId 自动生成；TLS 不填证书就生成自签的，分享链接会带上
-证书指纹让客户端固定信任。也可以填自己的证书路径。
-
-接管 3x-ui 和自建这两种模式下，改端口、启停、加删客户端、绑定出口的操作完全一致，
-用起来没有区别。
-
-装了 [xray-cf-lite](https://github.com/byJoey/xray-cf-lite) 的机器会自动接管它生成的
-三个节点。这个模式下节点归 xray-cf-lite 管，fanout 只负责给每个节点指定走哪条出口，
-所以界面上不提供新建、删除和改节点的入口——想改端口或 UUID 去 xray-cf-lite 那边改。
-两边共用同一份 Xray 配置，fanout 只往里加自己前缀的出站和分流规则，互不覆盖。
-
-后端在设置面板里可以随时切换，本机没装的会置灰并说明原因；也可以用
-`-panel 3x-ui` / `-panel native` / `-panel xray-cf-lite` 启动参数固定。
-界面里选过之后会记住，重启仍然生效。
-
-## 运维
-
-装完后敲 `f` 打开管理菜单：启停、看日志、查隧道、改端口/口令/访问路径、更新、卸载。
+The installer prints the management URL, access path, and password:
 
 ```
-  状态      运行中
-  版本      fanout v0.1.1
-  开机自启  enabled
-
-  管理地址  http://1.2.3.4:8899/gwPuWHvaNr/
-  访问口令  f81120ac328d11c11b
-
-   1) 启动          2) 停止
-   3) 重启          4) 查看日志
-   5) 隧道列表      6) 连接信息
-   7) 改端口        8) 改口令
-   9) 改访问路径   10) 开机自启开关
-  11) 更新         12) 卸载
+Management UI  http://<your-IP>:8899/gwPuWHvaNr/
+Password       f81120ac328d11c11b
 ```
 
-也可以直接带参数用：
+The path and password are randomly generated and stored in `/var/lib/fanout/basepath` and `/var/lib/fanout/password` respectively.
+Requests using the wrong path always receive a 404, which prevents simple port scans from revealing what is running there.
+
+## Usage
+
+The interface is organized around **exits**. Each row represents one tunnel plus the node links attached to it.
+
+Click **New Exit**, choose a region and quantity, then select an existing node as the template. fanout starts the tunnels in parallel, clones a node link for each exit, binds everything together, and reports progress for each target.
+
+![New exit](https://images.joeyblog.net/2026/7/27/fanout-wizard.png)
+
+Each exit row has two actions on the right: replace the VPN node, which changes the exit IP while keeping the port unchanged, or stop the exit.
+Because the port stays the same when a node is replaced, already distributed client configurations do not need to be changed.
+
+Click a node name to open its details. You can change its port or note, enable or disable it, manage clients, and bind it to another exit:
+
+![Node details](https://images.joeyblog.net/2026/7/27/fanout-detail.png)
+
+A single inbound can have multiple client credentials for different users. Each credential can be reset independently, and the old link stops working immediately after a reset.
+
+Use **Export Links** to export all node links at once:
+
+![Export links](https://images.joeyblog.net/2026/7/27/fanout-export.png)
+
+### Where node links come from
+
+If 3x-ui is installed on the same machine, fanout takes over its inbounds directly. The panel port, path, and API token are detected automatically, including SSL-enabled installations.
+If 3x-ui is not installed, fanout runs its own Xray instance and the interface includes a **New Node** button. You can choose the protocol (VLESS / VMess / Trojan), transport (TCP / WebSocket / gRPC / HTTPUpgrade / XHTTP), and security layer (None / TLS / REALITY).
+
+![New node](https://images.joeyblog.net/2026/7/27/fanout-newnode.png)
+
+REALITY key pairs and short IDs are generated automatically. If TLS is selected without certificate paths, fanout generates a self-signed certificate and includes the certificate fingerprint in shared links so clients can pin it. You can also provide your own certificate paths.
+
+The operations for changing ports, enabling or disabling nodes, adding or deleting clients, and binding exits work the same way whether fanout manages 3x-ui or runs Xray itself.
+
+Machines with [xray-cf-lite](https://github.com/byJoey/xray-cf-lite) installed are detected automatically and fanout takes over the three nodes it creates.
+In this mode xray-cf-lite owns the nodes, while fanout only controls which exit each node uses. Therefore the fanout interface does not offer node creation, deletion, or node-setting changes in this mode. Change ports or UUIDs in xray-cf-lite instead.
+Both applications share the same Xray configuration. fanout only adds outbound and routing rules with its own prefix and does not overwrite xray-cf-lite's settings.
+
+You can switch backends at any time in Settings. Backends that are not installed locally are disabled and show the reason.
+You can also force a backend with `-panel 3x-ui`, `-panel native`, or `-panel xray-cf-lite`.
+Selections made in the interface are saved and remain active after restart.
+
+## Operations
+
+After installation, run `f` to open the management menu. It can start or stop the service, show logs, inspect tunnels, change the port, password, or access path, update fanout, and uninstall it.
+
+```
+  Status       running
+  Version      fanout v0.1.1
+  Start at boot enabled
+
+  Management   http://1.2.3.4:8899/gwPuWHvaNr/
+  Password     f81120ac328d11c11b
+
+   1) Start          2) Stop
+   3) Restart        4) View logs
+   5) Tunnel list    6) Connection info
+   7) Change port    8) Change password
+   9) Change path   10) Startup toggle
+  11) Update        12) Uninstall
+```
+
+You can also use commands directly:
 
 ```bash
-f info       # 连接信息
-f list       # 隧道列表
-f restart    # 重启
-f log        # 跟踪日志
-f update     # 更新到最新版
-f uninstall  # 卸载
+f info       # connection information
+f list       # tunnel list
+f restart    # restart
+f log        # follow logs
+f update     # update to the latest version
+f uninstall  # uninstall
 ```
 
-隧道状态存在 `/var/lib/fanout/state.json`，重启后自动恢复，端口保持不变。
+Tunnel state is stored in `/var/lib/fanout/state.json`. Tunnels are restored automatically after restart and keep the same ports.
 
-健康检查每 10 秒跑一次，比对出口 IP 是否还是建立隧道时那个——openvpn 挂掉后
-netns 仍能经母机 NAT 出网，只看通不通会漏判。连续两次不符就自动换节点重连，
-槽位和端口不变，原先指向它的节点链接会自动改绑过去。
+The health check runs every 10 seconds and verifies that each current exit IP still matches the IP recorded when its tunnel was established.
+This is more reliable than checking connectivity alone because a dead OpenVPN process can leave its network namespace able to reach the internet through host NAT.
+After two consecutive mismatches, fanout automatically selects another node and reconnects. The slot and port remain unchanged, and node links previously pointing to that exit are rebound automatically.
 
-## 已知限制
+## Known limitations
 
-- 只转发 TCP。SOCKS5 收到域名时在本机解析，隧道内不跑 UDP/DNS。
-- VPN Gate 是志愿者节点，有相当比例已下线或满员（`AUTH_FAILED`）。
-  启动时连不上会自动顺着同地区候选往下试，最多 6 个。
-- 管理界面只有随机路径 + 口令登录，没有 HTTPS。放公网建议前面套一层反代。
+- TCP forwarding only. If SOCKS5 receives a domain name, it is resolved on the host. UDP/DNS is not tunneled.
+- VPN Gate is made up of volunteer nodes, and a significant number may be offline or full (`AUTH_FAILED`). If a node cannot connect at startup, fanout automatically tries other candidates from the same region, up to six nodes.
+- The management interface uses a random path and password but does not provide HTTPS itself. If it is exposed publicly, placing it behind a reverse proxy with HTTPS is recommended.
 
-## 许可
+## License
 
-[MIT](LICENSE)。
+[MIT](LICENSE).
 
-节点来自 [VPN Gate](https://www.vpngate.net/)（筑波大学的学术实验项目），
-本工具只是调用其公开的节点列表并用官方 openvpn 客户端连接，不修改也不代理其服务。
-使用时请遵守 VPN Gate 的条款和你所在地的法律。
+Nodes come from [VPN Gate](https://www.vpngate.net/), an academic experimental project operated by the University of Tsukuba.
+This tool only consumes VPN Gate's public node list and connects using the official OpenVPN client. It does not modify or proxy the VPN Gate service.
+Use it in accordance with VPN Gate's terms and the laws applicable in your location.
 
-## 交流
+## Community
 
-- 交流群：<https://t.me/+ft-zI76oovgwNmRh>
-- 视频教程：<https://youtube.com/@joeyblog>
-- 博客：<https://joeyblog.net>
+- Telegram group: <https://t.me/+ft-zI76oovgwNmRh>
+- Video tutorials: <https://youtube.com/@joeyblog>
+- Blog: <https://joeyblog.net>
 
-用着有问题、或者想要什么功能，去群里说或提 issue。
+For bugs or feature requests, use the community group or open an issue.

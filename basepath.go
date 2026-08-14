@@ -10,18 +10,19 @@ import (
 	"sync"
 )
 
-// basePathAlphabet 避开容易看错的字符。
+// basePathAlphabet avoids characters that are easy to confuse.
 const basePathAlphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
-// 访问路径做成可在运行时改：StripBasePath 每次请求读当前值，
-// 设置面板改完立即生效，不用重启。
+// The access path can be changed at runtime: StripBasePath reads the current
+// value for every request, so changes made in Settings take effect immediately.
 var (
 	basePathMu  sync.RWMutex
 	basePathCur string
 	basePathDir string
 )
 
-// initBasePath 载入访问路径并记住工作目录，供后续修改落盘。
+// initBasePath loads the access path and remembers the working directory so
+// later changes can be persisted.
 func initBasePath(dir string) (bool, error) {
 	bp, created, err := LoadBasePath(dir)
 	if err != nil {
@@ -34,24 +35,25 @@ func initBasePath(dir string) (bool, error) {
 	return created, nil
 }
 
-// currentBasePath 返回当前访问路径（形如 /xxx 或空）。
+// currentBasePath returns the current access path, such as /xxx, or an empty string.
 func currentBasePath() string {
 	basePathMu.RLock()
 	defer basePathMu.RUnlock()
 	return basePathCur
 }
 
-// setBasePath 校验并保存新的访问路径，立即生效。空串表示不加路径前缀。
+// setBasePath validates and saves a new access path. An empty string removes
+// the path prefix. Changes take effect immediately.
 func setBasePath(raw string) (string, error) {
 	bp := normalizeBasePath(raw)
 	if bp != "" {
-		// 用户手填的路径放宽到任意字母数字加 - _，不套用自动生成时刻意避开的
-		// 易混字符集（那套是给随机生成用的）。
+		// User-entered paths may contain any alphanumeric character plus - and _.
+		// The reduced alphabet above is only for automatically generated paths.
 		for _, c := range strings.TrimPrefix(bp, "/") {
 			ok := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 				(c >= '0' && c <= '9') || c == '-' || c == '_'
 			if !ok {
-				return "", fmt.Errorf("访问路径只能用字母、数字、- 和 _")
+				return "", fmt.Errorf("access path may contain only letters, numbers, - and _")
 			}
 		}
 	}
@@ -59,7 +61,7 @@ func setBasePath(raw string) (string, error) {
 	dir := basePathDir
 	basePathMu.RUnlock()
 	if err := os.WriteFile(filepath.Join(dir, "basepath"), []byte(strings.TrimPrefix(bp, "/")+"\n"), 0600); err != nil {
-		return "", fmt.Errorf("写访问路径失败: %w", err)
+		return "", fmt.Errorf("failed to write access path: %w", err)
 	}
 	basePathMu.Lock()
 	basePathCur = bp
@@ -67,8 +69,8 @@ func setBasePath(raw string) (string, error) {
 	return bp, nil
 }
 
-// LoadBasePath 读取或生成随机访问路径，形如 /aB3xY9pQ。
-// 和 3x-ui 一样：路径本身也是一层门槛，扫端口的探不到界面。
+// LoadBasePath reads or generates a random access path such as /aB3xY9pQ.
+// Like 3x-ui, the path itself adds a barrier so simple port scans do not reveal the UI.
 func LoadBasePath(dir string) (string, bool, error) {
 	path := filepath.Join(dir, "basepath")
 
@@ -86,7 +88,7 @@ func LoadBasePath(dir string) (string, bool, error) {
 		return "", false, err
 	}
 	if err := os.WriteFile(path, []byte(bp+"\n"), 0600); err != nil {
-		return "", false, fmt.Errorf("写访问路径失败: %w", err)
+		return "", false, fmt.Errorf("failed to write access path: %w", err)
 	}
 	return normalizeBasePath(bp), true, nil
 }
@@ -103,7 +105,7 @@ func randomBasePath(n int) (string, error) {
 	return string(out), nil
 }
 
-// normalizeBasePath 统一成 /xxx 的形式（无结尾斜杠）。
+// normalizeBasePath converts a path to /xxx form without a trailing slash.
 func normalizeBasePath(bp string) string {
 	bp = strings.Trim(bp, "/")
 	if bp == "" {
@@ -112,9 +114,9 @@ func normalizeBasePath(bp string) string {
 	return "/" + bp
 }
 
-// StripBasePath 把请求剥掉前缀后交给内层 handler。
-// 前缀不匹配的请求一律 404，不泄漏这里跑着什么服务。
-// 每次请求读当前 basePath，改路径后无需重启即可生效。
+// StripBasePath removes the configured prefix before passing a request to the
+// inner handler. Requests with the wrong prefix always receive 404, and the
+// current base path is read on every request so changes require no restart.
 func StripBasePath(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		base := currentBasePath()
@@ -124,7 +126,7 @@ func StripBasePath(next http.Handler) http.Handler {
 		}
 		switch {
 		case r.URL.Path == base:
-			// 少了结尾斜杠时补上，否则页面里的相对路径会拼错
+			// Add the trailing slash so relative page URLs resolve correctly.
 			http.Redirect(w, r, base+"/", http.StatusTemporaryRedirect)
 		case strings.HasPrefix(r.URL.Path, base+"/"):
 			r.URL.Path = strings.TrimPrefix(r.URL.Path, base)

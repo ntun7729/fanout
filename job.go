@@ -7,14 +7,15 @@ import (
 	"time"
 )
 
-// JobStep 是作业里的一个目标。界面按步骤逐条显示，用户能看清是哪一个卡住了。
+// JobStep is one target in a job. The UI shows each step separately so users
+// can see exactly which target is stalled or failed.
 type JobStep struct {
 	Label  string `json:"label"`
 	Status string `json:"status"` // pending | running | ok | failed
 	Detail string `json:"detail"`
 }
 
-// Job 是一次批量开出口的作业。
+// Job represents one batch exit-provisioning operation.
 type Job struct {
 	mu      sync.Mutex
 	id      string
@@ -25,7 +26,7 @@ type Job struct {
 	ended   time.Time
 }
 
-// JobView 是 Job 的只读快照，用于返回给界面。
+// JobView is a read-only snapshot returned to the UI.
 type JobView struct {
 	ID      string    `json:"id"`
 	Summary string    `json:"summary"`
@@ -38,7 +39,7 @@ type JobView struct {
 
 func (j *Job) ID() string { return j.id }
 
-// Set 更新某一步的状态。
+// Set updates the state of one step.
 func (j *Job) Set(i int, status, detail string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -49,7 +50,7 @@ func (j *Job) Set(i int, status, detail string) {
 	j.steps[i].Detail = detail
 }
 
-// Finish 收尾：只要有一步失败就整体标记为 failed，界面据此决定是否留着让用户看。
+// Finish completes the job. If any step failed, the entire job is marked failed.
 func (j *Job) Finish() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -80,13 +81,13 @@ func (j *Job) View() JobView {
 	return v
 }
 
-// JobStore 保存最近的作业。作业本身是瞬时的，进程重启后不需要恢复。
+// JobStore keeps recent jobs. Jobs are transient and do not need to survive a process restart.
 type JobStore struct {
 	mu   sync.Mutex
 	jobs []*Job
 }
 
-// keepJobs 限制保留数量，避免长期运行后无限增长。
+// keepJobs limits retained history so long-running processes do not grow indefinitely.
 const keepJobs = 8
 
 func (s *JobStore) New(summary string, labels []string) *Job {
@@ -109,7 +110,7 @@ func (s *JobStore) New(summary string, labels []string) *Job {
 	return j
 }
 
-// Views 返回最近的作业，新的在前。
+// Views returns recent jobs with the newest first.
 func (s *JobStore) Views() []JobView {
 	s.mu.Lock()
 	jobs := make([]*Job, len(s.jobs))
@@ -123,7 +124,7 @@ func (s *JobStore) Views() []JobView {
 	return out
 }
 
-// Dismiss 丢掉一个已结束的作业，用户点关闭时调用。
+// Dismiss removes a completed job when the user closes it in the UI.
 func (s *JobStore) Dismiss(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

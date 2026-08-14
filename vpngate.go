@@ -15,11 +15,13 @@ import (
 
 const vpngateAPI = "https://www.vpngate.net/api/iphone/"
 
-// vpngateMirror 是直连拿不到节点列表时的兜底（Cloudflare Worker 反代）。
-// 用 FANOUT_VPNGATE_MIRROR 可以换成自己的地址，设成空字符串就只走直连。
+// vpngateMirror is a fallback used when the node list cannot be fetched
+// directly. FANOUT_VPNGATE_MIRROR can point to a custom mirror; set it to an
+// empty string to disable mirror fallback.
 const vpngateMirror = "https://p.xy.kg/vpngate"
 
-// mirrorKey 只是让反代不被爬虫和端口扫描白嫖，不是安全边界。
+// mirrorKey only prevents casual crawler/port-scan abuse of the proxy; it is
+// not intended as a security boundary.
 const mirrorKey = "8rhIFzFKRJMFAe-xP5OQPclDEvSjKlHo"
 
 func mirrorURL() string {
@@ -36,7 +38,7 @@ func mirrorAccessKey() string {
 	return mirrorKey
 }
 
-// Node 是一个 VPN Gate 节点。
+// Node represents a VPN Gate node.
 type Node struct {
 	HostName    string  `json:"hostname"`
 	IP          string  `json:"ip"`
@@ -45,17 +47,17 @@ type Node struct {
 	Ping        int     `json:"ping"`
 	SpeedMbps   float64 `json:"speed_mbps"`
 	Sessions    int     `json:"sessions"`
-	Config      string  `json:"-"` // 解码后的 .ovpn 内容
+	Config      string  `json:"-"` // Decoded .ovpn content.
 }
 
-// fetchNodes 拉取并解析 VPN Gate 的节点列表。
-// 先直连；连不上或者拿回来的内容不对（被拦截、返回门户页）就换反代再试一次。
-// 返回的列表已按速度降序排列。
+// fetchNodes fetches and parses the VPN Gate node list. It tries the direct API
+// first, then the mirror if the request fails or returns invalid content. The
+// returned list is sorted by speed in descending order.
 func fetchNodes(timeout time.Duration) ([]Node, error) {
 	return fetchNodesWith(vpngateAPI, timeout)
 }
 
-// fetchNodesWith 把直连地址拆成参数，方便测试两条分支。
+// fetchNodesWith accepts the direct URL as an argument so both paths are testable.
 func fetchNodesWith(direct string, timeout time.Duration) ([]Node, error) {
 	nodes, err := fetchNodesFrom(direct, "", timeout)
 	if err == nil {
@@ -67,7 +69,7 @@ func fetchNodesWith(direct string, timeout time.Duration) ([]Node, error) {
 	}
 	nodes, mirrorErr := fetchNodesFrom(mirror, mirrorAccessKey(), timeout)
 	if mirrorErr != nil {
-		return nil, fmt.Errorf("直连失败(%v)；反代也失败: %w", err, mirrorErr)
+		return nil, fmt.Errorf("direct request failed (%v); mirror also failed: %w", err, mirrorErr)
 	}
 	return nodes, nil
 }
@@ -76,28 +78,28 @@ func fetchNodesFrom(url, key string, timeout time.Duration) ([]Node, error) {
 	client := &http.Client{Timeout: timeout}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("拉取节点列表失败: %w", err)
+		return nil, fmt.Errorf("failed to fetch node list: %w", err)
 	}
 	if key != "" {
 		req.Header.Set("X-Fanout-Key", key)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("拉取节点列表失败: %w", err)
+		return nil, fmt.Errorf("failed to fetch node list: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("拉取节点列表失败: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed to fetch node list: HTTP %d", resp.StatusCode)
 	}
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取节点列表失败: %w", err)
+		return nil, fmt.Errorf("failed to read node list: %w", err)
 	}
 	return parseNodeCSV(string(raw))
 }
 
-// parseNodeCSV 解析 VPN Gate 的 CSV。首行是 "*vpn_servers"，
-// 第二行是以 '#' 开头的表头，末行是 "*"。
+// parseNodeCSV parses VPN Gate CSV. The first line is "*vpn_servers", the
+// second line is a header beginning with '#', and the final line is "*".
 func parseNodeCSV(body string) ([]Node, error) {
 	var kept []string
 	for _, line := range strings.Split(body, "\n") {
@@ -108,14 +110,14 @@ func parseNodeCSV(body string) ([]Node, error) {
 		kept = append(kept, strings.TrimPrefix(line, "#"))
 	}
 	if len(kept) < 2 {
-		return nil, fmt.Errorf("节点列表格式异常: 有效行不足")
+		return nil, fmt.Errorf("invalid node list format: not enough valid rows")
 	}
 
 	r := csv.NewReader(strings.NewReader(strings.Join(kept, "\n")))
 	r.FieldsPerRecord = -1
 	records, err := r.ReadAll()
 	if err != nil {
-		return nil, fmt.Errorf("解析节点 CSV 失败: %w", err)
+		return nil, fmt.Errorf("failed to parse node CSV: %w", err)
 	}
 
 	header := records[0]
@@ -126,7 +128,7 @@ func parseNodeCSV(body string) ([]Node, error) {
 	need := []string{"HostName", "IP", "CountryLong", "CountryShort", "Ping", "Speed", "OpenVPN_ConfigData_Base64"}
 	for _, k := range need {
 		if _, ok := idx[k]; !ok {
-			return nil, fmt.Errorf("节点列表缺少字段 %s", k)
+			return nil, fmt.Errorf("node list is missing field %s", k)
 		}
 	}
 
@@ -162,7 +164,7 @@ func parseNodeCSV(body string) ([]Node, error) {
 		})
 	}
 	if len(nodes) == 0 {
-		return nil, fmt.Errorf("节点列表为空")
+		return nil, fmt.Errorf("node list is empty")
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].SpeedMbps > nodes[j].SpeedMbps })
 	return nodes, nil

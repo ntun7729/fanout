@@ -6,16 +6,17 @@ import (
 	"net"
 )
 
-// 随机端口的取值范围，落在 IANA 动态端口区间内，避开常见服务。
+// Random port range within the IANA dynamic-port range, avoiding common services.
 const (
 	randPortMin = 20000
 	randPortMax = 60000
 )
 
-// freeRandomPort 随机挑一个当前空闲的 TCP 端口。
+// freeRandomPort chooses a currently available TCP port at random.
 //
-// taken 里的端口会被跳过，用于避开本进程已经分配但还没真正监听的端口。
-// 实际可用性以能否 bind 为准，这样不会和系统上其他进程抢。
+// Ports in taken are skipped so allocations made by this process but not yet
+// listening are not reused. Actual availability is verified by binding the port,
+// which also avoids collisions with other system processes.
 func freeRandomPort(taken map[int]bool) (int, error) {
 	for i := 0; i < 200; i++ {
 		port := randPortMin + rand.Intn(randPortMax-randPortMin)
@@ -26,10 +27,10 @@ func freeRandomPort(taken map[int]bool) (int, error) {
 			return port, nil
 		}
 	}
-	return 0, fmt.Errorf("找不到可用端口（已尝试 200 次）")
+	return 0, fmt.Errorf("no available port found after 200 attempts")
 }
 
-// portAvailable 通过尝试监听来判断端口是否真的空闲。
+// portAvailable checks whether a port is actually free by trying to listen on it.
 func portAvailable(port int) bool {
 	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
 	if err != nil {

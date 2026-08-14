@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// ExitInbound 是挂在某个出口上的一个 3x-ui 入站。
+// ExitInbound is a 3x-ui inbound attached to an exit.
 type ExitInbound struct {
 	ID       int    `json:"id"`
 	Port     int    `json:"port"`
@@ -15,11 +15,11 @@ type ExitInbound struct {
 	Tag      string `json:"tag"`
 }
 
-// Exit 是界面上的一行：一条隧道加上挂在它出口的所有入站。
-// 用户脑子里的单位是"一个出口"，不是"一条隧道"和"一个入站"两样东西。
+// Exit is one row in the UI: a tunnel plus every inbound routed through it.
+// The user-facing unit is an exit, rather than separate tunnel and inbound concepts.
 type Exit struct {
 	Slot    int       `json:"slot"`
-	Port    int       `json:"port"` // SOCKS5 端口
+	Port    int       `json:"port"` // SOCKS5 port
 	Host    string    `json:"host"`
 	Region  string    `json:"region"`
 	Country string    `json:"country"`
@@ -27,29 +27,32 @@ type Exit struct {
 	Status  string    `json:"status"`
 	Err     string    `json:"err,omitempty"`
 	Since   time.Time `json:"since"`
-	// SOCKS5 凭据：界面要能看、能复制、能改
+	// SOCKS5 credentials are shown, copied, and edited in the UI.
 	SocksUser string        `json:"socks_user"`
 	SocksPass string        `json:"socks_pass"`
 	Inbounds  []ExitInbound `json:"inbounds"`
 }
 
-// ExitsView 是主界面需要的全部数据。
+// ExitsView contains all data required by the main UI.
 type ExitsView struct {
 	Exits []Exit `json:"exits"`
-	// Direct 是没绑到任何出口的入站，仍然要能看见，否则用户会以为它们不见了
+	// Direct contains inbounds that are not bound to an exit. They remain visible
+	// so users do not mistake them for deleted nodes.
 	Direct []ExitInbound `json:"direct"`
-	Panel  string        `json:"panel"` // 面板不可用时的原因，空表示正常
-	// Backend 是 "3x-ui" 或 "native"。界面据此决定是否提供新建入站入口：
-	// 接管面板时入站归面板管，自建模式才由 fanout 自己建。
+	Panel  string        `json:"panel"` // Reason the panel is unavailable; empty when healthy.
+	// Backend identifies the active node backend. The UI uses it to decide whether
+	// inbound creation is available: managed panels own their inbounds, while native
+	// mode lets fanout create them directly.
 	Backend string `json:"backend"`
-	// PanelInfo 是后端的一行说明，显示在标题旁
+	// PanelInfo is a one-line backend description shown beside the title.
 	PanelInfo string `json:"panel_info"`
-	// PublicIP 是母机公网 IPv4，前端用它当 SOCKS5/分享链接的连接地址
+	// PublicIP is the host's public IPv4, used as the SOCKS5/share-link connection address.
 	PublicIP string `json:"public_ip"`
 }
 
-// inboundCache 给入站列表做很短的缓存。界面每几秒轮询一次，
-// 而每次读入站都要顺带解析一遍完整的 Xray 配置，没必要每次都真的去问面板。
+// inboundCache briefly caches the inbound list. The UI polls every few seconds,
+// and each inbound read requires parsing the complete Xray configuration, so
+// querying the panel on every poll would be wasteful.
 type inboundCache struct {
 	mu   sync.Mutex
 	at   time.Time
@@ -77,19 +80,19 @@ func cachedInbounds(live map[string]bool) ([]Inbound, error) {
 	return list, err
 }
 
-// invalidateInbounds 在写操作之后调用，让下一次读立刻反映改动。
+// invalidateInbounds is called after writes so the next read reflects changes immediately.
 func invalidateInbounds() {
 	ibCache.mu.Lock()
 	ibCache.at = time.Time{}
 	ibCache.mu.Unlock()
 }
 
-// ExitsOf 把隧道和入站 join 成界面直接可用的形态。
+// ExitsOf joins tunnels and inbounds into the shape consumed directly by the UI.
 func (m *Manager) ExitsOf() ExitsView {
 	tunnels := m.Tunnels()
 	view := ExitsView{Exits: make([]Exit, 0, len(tunnels)), PublicIP: hostPublicIP()}
 
-	// 先填后端类型：入站读取失败时界面仍要知道当前是哪种模式
+	// Populate backend type first so the UI still knows the active mode if reading inbounds fails.
 	if p, err := openPanel(); err == nil {
 		view.Backend = p.Kind()
 		view.PanelInfo = p.Describe()

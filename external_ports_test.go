@@ -23,13 +23,13 @@ func TestMergeXrayConfigPorts(t *testing.T) {
 	used := map[int]bool{}
 	mergeXrayConfigPorts(path, used)
 	if !used[15331] || !used[8080] {
-		t.Fatalf("数字端口应被并入: %v", used)
+		t.Fatalf("numeric ports should be included: %v", used)
 	}
 	if used[1000] || used[2000] {
-		t.Errorf("端口区间字符串不该被解析成端口: %v", used)
+		t.Errorf("port-range strings should not be parsed as individual ports: %v", used)
 	}
 	if len(used) != 2 {
-		t.Errorf("只应有 2 个端口, got %v", used)
+		t.Errorf("expected exactly 2 ports, got %v", used)
 	}
 }
 
@@ -37,7 +37,7 @@ func TestMergeXrayConfigPortsMissingFileIsSilent(t *testing.T) {
 	used := map[int]bool{}
 	mergeXrayConfigPorts("/nonexistent/definitely/not/here.json", used)
 	if len(used) != 0 {
-		t.Errorf("缺文件应静默, got %v", used)
+		t.Errorf("missing files should be ignored, got %v", used)
 	}
 }
 
@@ -50,6 +50,6 @@ func TestMergeXrayConfigPortsBadJSONIsSilent(t *testing.T) {
 	used := map[int]bool{}
 	mergeXrayConfigPorts(path, used)
 	if len(used) != 0 {
-		t.Errorf("坏 JSON 应静默, got %v", used)
+		t.Errorf("invalid JSON should be ignored, got %v", used)
 	}
 }

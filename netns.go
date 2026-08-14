@@ -8,8 +8,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// dialerInNetns 返回一个在指定 netns 内建立出站连接的 dial 函数。
-// 每次拨号都要切一次 netns，因为 socket 的归属在创建时确定。
+// dialerInNetns returns a dial function that establishes outbound connections
+// inside the specified network namespace. Each dial switches namespaces because
+// a socket's namespace ownership is fixed when the socket is created.
 func dialerInNetns(nsName string) func(network, addr string) (net.Conn, error) {
 	return func(network, addr string) (net.Conn, error) {
 		type result struct {
@@ -40,8 +41,9 @@ func dialerInNetns(nsName string) func(network, addr string) (net.Conn, error) {
 				return
 			}
 
-			// 隧道内只有 IPv4 路由。不限定的话 net.Dial 可能选中 AAAA 记录，
-			// 那条连接会绕开隧道从母机的 IPv6 出去，暴露真实地址。
+			// Tunnels only have IPv4 routes. Without forcing IPv4, net.Dial could
+			// choose an AAAA record and send traffic through the host's IPv6 path,
+			// exposing the real host address.
 			conn, dialErr := net.Dial(forceIPv4Network(network), addr)
 
 			if err := unix.Setns(int(origin.Fd()), unix.CLONE_NEWNET); err != nil {
@@ -61,7 +63,7 @@ func dialerInNetns(nsName string) func(network, addr string) (net.Conn, error) {
 	}
 }
 
-// forceIPv4Network 把 tcp/udp 收敛成 tcp4/udp4，已经指定版本的原样返回。
+// forceIPv4Network converts tcp/udp to tcp4/udp4 and leaves explicitly versioned networks unchanged.
 func forceIPv4Network(network string) string {
 	switch network {
 	case "tcp":
