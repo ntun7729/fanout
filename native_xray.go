@@ -12,19 +12,19 @@ import (
 	"time"
 )
 
-// xrayCandidates 是自建模式查找 xray 二进制的位置，按优先级排列。
-// 优先用 fanout 自己装的那份，避免和别人的 xray 抢版本。
+// xrayCandidates lists Xray binary locations in priority order. Prefer the copy
+// installed by fanout so another installation cannot unexpectedly change versions.
 func xrayCandidates(workDir string) []string {
 	return []string{
 		filepath.Join(workDir, "bin", "xray"),
 		"/usr/local/bin/xray",
 		"/usr/bin/xray",
-		// 接管 3x-ui 时机器上通常只有面板自带的这份，文件名带平台后缀
+		// 3x-ui usually bundles an architecture-suffixed Xray binary here.
 		fmt.Sprintf("/usr/local/x-ui/bin/xray-%s-%s", runtime.GOOS, xuiArchSuffix()),
 	}
 }
 
-// xuiArchSuffix 把 Go 的 GOARCH 映射成 3x-ui 给 xray 二进制起名用的后缀。
+// xuiArchSuffix maps Go's GOARCH to the suffix used by 3x-ui Xray binaries.
 func xuiArchSuffix() string {
 	switch runtime.GOARCH {
 	case "amd64":
@@ -40,7 +40,7 @@ func xuiArchSuffix() string {
 	}
 }
 
-// findXray 定位可执行的 xray。
+// findXray locates an executable Xray binary.
 func findXray(workDir string) (string, error) {
 	for _, p := range xrayCandidates(workDir) {
 		if st, err := os.Stat(p); err == nil && !st.IsDir() && st.Mode()&0111 != 0 {
@@ -50,14 +50,13 @@ func findXray(workDir string) (string, error) {
 	if p, err := exec.LookPath("xray"); err == nil {
 		return p, nil
 	}
-	return "", fmt.Errorf("找不到 xray 可执行文件，装一份到 %s 或 /usr/local/bin/xray",
+	return "", fmt.Errorf("Xray executable not found; install it at %s or /usr/local/bin/xray",
 		filepath.Join(workDir, "bin", "xray"))
 }
 
-// buildXrayConfig 由入站列表和当前隧道生成完整的 Xray 运行配置。
-//
-// 出站分三类：每条连通隧道一个 socks 出站（tag 为 fanout-<节点名>）、
-// 一个直连 direct、一个 block。绑定关系落成 routing 规则。
+// buildXrayConfig generates a complete Xray configuration from inbounds and
+// current tunnels. It creates one SOCKS outbound per connected tunnel, plus
+// direct and block outbounds, and writes bindings as routing rules.
 func buildXrayConfig(inbounds []*nativeInbound, tunnels []*Tunnel) map[string]any {
 	live := map[string]bool{}
 	for _, t := range tunnels {
@@ -74,8 +73,8 @@ func buildXrayConfig(inbounds []*nativeInbound, tunnels []*Tunnel) map[string]an
 		ins = append(ins, nativeInboundJSON(ib))
 	}
 
-	// direct 强制 IPv4：隧道内没有 IPv6，母机有全局 IPv6 时
-	// 没匹配上规则的流量会从 IPv6 出去，暴露服务器真实地址。
+	// Force IPv4 for direct traffic. Tunnels do not provide IPv6 routing, so an
+	// unmatched IPv6 connection could otherwise leave through the host and expose it.
 	outs := []any{
 		map[string]any{
 			"tag":      "direct",
@@ -120,7 +119,7 @@ func buildXrayConfig(inbounds []*nativeInbound, tunnels []*Tunnel) map[string]an
 	}
 }
 
-// nativeInboundJSON 把一个入站转成 Xray 的 inbound 配置。
+// nativeInboundJSON converts one stored inbound into Xray inbound configuration.
 func nativeInboundJSON(ib *nativeInbound) map[string]any {
 	settings := map[string]any{}
 	clients := make([]any, 0, len(ib.Clients))
@@ -153,7 +152,7 @@ func nativeInboundJSON(ib *nativeInbound) map[string]any {
 	}
 }
 
-// streamSettingsJSON 生成传输层配置：网络类型 + 安全层。
+// streamSettingsJSON builds transport and security settings.
 func streamSettingsJSON(ib *nativeInbound) map[string]any {
 	network := ib.netOrTCP()
 	stream := map[string]any{"network": network, "security": ib.securityOrNone()}
@@ -182,7 +181,7 @@ func streamSettingsJSON(ib *nativeInbound) map[string]any {
 		}
 		stream["xhttpSettings"] = xh
 	case "grpc":
-		// gRPC 没有 path，用 serviceName 区分；沿用 Path 字段少一个概念
+		// gRPC uses serviceName rather than path; reuse Path to keep the model simple.
 		name := strings.TrimPrefix(ib.Path, "/")
 		stream["grpcSettings"] = map[string]any{"serviceName": name}
 	}
@@ -223,7 +222,7 @@ func toAnySlice(in []string) []any {
 	return out
 }
 
-// writeXrayConfig 把配置写到磁盘，返回配置路径。
+// writeXrayConfig writes the generated configuration and returns its path.
 func writeXrayConfig(dir string, cfg map[string]any) (string, error) {
 	blob, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -240,14 +239,12 @@ func writeXrayConfig(dir string, cfg map[string]any) (string, error) {
 	return path, nil
 }
 
-// verifyXrayConfig 用 xray 自己的校验器检查配置。
-//
-// 先校验再重启：配置写坏时进程会起不来，而那时旧进程已经被杀掉，
-// 所有节点链接会一起断掉。校验能把这类错误挡在重启之前。
+// verifyXrayConfig validates configuration with Xray before restarting. This
+// prevents one bad config from killing the current process and taking all links down.
 func verifyXrayConfig(bin, cfgPath string) error {
 	out, err := exec.Command(bin, "run", "-test", "-c", cfgPath).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("Xray 配置校验失败: %s", trimOutput(out))
+		return fmt.Errorf("Xray configuration validation failed: %s", trimOutput(out))
 	}
 	return nil
 }
@@ -260,7 +257,7 @@ func trimOutput(b []byte) string {
 	return s
 }
 
-// xrayProc 管理自建模式下的 xray 进程。
+// xrayProc manages the Xray process in native mode.
 type xrayProc struct {
 	bin  string
 	dir  string
@@ -268,14 +265,14 @@ type xrayProc struct {
 	logf *os.File
 }
 
-// restart 用当前配置重启 xray。配置已在调用前写好并校验过。
+// restart restarts Xray using a configuration that has already been written and validated.
 func (p *xrayProc) restart(cfgPath string) error {
 	p.stop()
 
 	logPath := filepath.Join(p.dir, "xray.log")
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
-		return fmt.Errorf("打开 Xray 日志失败: %w", err)
+		return fmt.Errorf("failed to open Xray log: %w", err)
 	}
 
 	cmd := exec.Command(p.bin, "run", "-c", cfgPath)
@@ -283,16 +280,16 @@ func (p *xrayProc) restart(cfgPath string) error {
 	cmd.Stderr = f
 	if err := cmd.Start(); err != nil {
 		f.Close()
-		return fmt.Errorf("启动 Xray 失败: %w", err)
+		return fmt.Errorf("failed to start Xray: %w", err)
 	}
 	p.cmd, p.logf = cmd, f
-	go cmd.Wait() // 回收子进程，避免僵尸
+	go cmd.Wait() // Reap the child process to avoid zombies.
 	p.writePID(cmd.Process.Pid)
 
-	// 起得来但立刻退出的情况要能被发现，否则界面会显示成功而实际不通
+	// Detect processes that start successfully but immediately exit.
 	time.Sleep(400 * time.Millisecond)
 	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-		return fmt.Errorf("Xray 启动后立刻退出，详见 %s", logPath)
+		return fmt.Errorf("Xray exited immediately after startup; see %s", logPath)
 	}
 	return nil
 }
@@ -315,11 +312,9 @@ func (p *xrayProc) writePID(pid int) {
 	_ = os.WriteFile(p.pidPath(), []byte(strconv.Itoa(pid)), 0600)
 }
 
-// reapOrphan 清掉上次遗留的 Xray。
-//
-// fanout 被 SIGKILL 时来不及停子进程，遗留的 Xray 仍占着入站端口，
-// 下次启动会因端口冲突起不来。这里按 pidfile 精确定位，
-// 并核对可执行文件确实是我们启动的那个，避免误杀同名进程。
+// reapOrphan removes an Xray process left behind by a prior forced termination.
+// It verifies the executable path from the pidfile before killing anything so a
+// recycled PID cannot terminate an unrelated process.
 func (p *xrayProc) reapOrphan() {
 	blob, err := os.ReadFile(p.pidPath())
 	if err != nil {
@@ -330,7 +325,6 @@ func (p *xrayProc) reapOrphan() {
 		_ = os.Remove(p.pidPath())
 		return
 	}
-	// pid 会被系统回收给别的进程，只有确认可执行文件一致才动手
 	if exe, err := os.Readlink(fmt.Sprintf("/proc/%d/exe", pid)); err == nil {
 		if exe == p.bin {
 			if proc, err := os.FindProcess(pid); err == nil {
