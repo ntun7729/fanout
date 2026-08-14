@@ -19,26 +19,26 @@ func TestNormalizeListenAddr(t *testing.T) {
 	for in, want := range cases {
 		got, err := normalizeListenAddr(in)
 		if err != nil {
-			t.Fatalf("normalizeListenAddr(%q) 意外报错: %v", in, err)
+			t.Fatalf("normalizeListenAddr(%q) returned an unexpected error: %v", in, err)
 		}
 		if got != want {
-			t.Fatalf("normalizeListenAddr(%q)=%q，想要 %q", in, got, want)
+			t.Fatalf("normalizeListenAddr(%q)=%q, want %q", in, got, want)
 		}
 	}
 	if _, err := normalizeListenAddr("not-an-ip"); err == nil {
-		t.Fatal("非法监听地址应当报错")
+		t.Fatal("invalid listen address should return an error")
 	}
 }
 
 func TestValidatePort(t *testing.T) {
 	for _, p := range []int{1, 8899, 65535} {
 		if err := validatePort(p); err != nil {
-			t.Fatalf("端口 %d 应合法: %v", p, err)
+			t.Fatalf("port %d should be valid: %v", p, err)
 		}
 	}
 	for _, p := range []int{0, -1, 70000} {
 		if err := validatePort(p); err == nil {
-			t.Fatalf("端口 %d 应非法", p)
+			t.Fatalf("port %d should be invalid", p)
 		}
 	}
 }
@@ -53,17 +53,17 @@ func TestSetBasePathValidatesAndPersists(t *testing.T) {
 		t.Fatalf("setBasePath: %v", err)
 	}
 	if bp != "/myPanel_1" || currentBasePath() != "/myPanel_1" {
-		t.Fatalf("basePath 未生效: %q / %q", bp, currentBasePath())
+		t.Fatalf("base path did not take effect: %q / %q", bp, currentBasePath())
 	}
 	if _, err := os.ReadFile(dir + "/basepath"); err != nil {
-		t.Fatalf("basepath 未落盘: %v", err)
+		t.Fatalf("base path was not persisted: %v", err)
 	}
 	if _, err := setBasePath("bad/slash"); err == nil {
-		t.Fatal("带非法字符的路径应被拒")
+		t.Fatal("path containing invalid characters should be rejected")
 	}
-	// 空串表示去掉前缀
+	// Empty string removes the prefix.
 	if bp, err := setBasePath(""); err != nil || bp != "" {
-		t.Fatalf("空路径应清空前缀: %q %v", bp, err)
+		t.Fatalf("empty path should remove the prefix: %q %v", bp, err)
 	}
 }
 
@@ -77,16 +77,16 @@ func TestAuthSetPassword(t *testing.T) {
 		t.Fatalf("SetPassword: %v", err)
 	}
 	if !auth.check("newsecret") {
-		t.Fatal("新口令应校验通过")
+		t.Fatal("new password should validate")
 	}
 	if auth.check("wrong") {
-		t.Fatal("旧口令不应再通过")
+		t.Fatal("old/wrong password should not validate")
 	}
 	if err := auth.SetPassword(""); err == nil {
-		t.Fatal("空口令应被拒")
+		t.Fatal("empty password should be rejected")
 	}
 	if err := auth.SetPassword("ab"); err == nil {
-		t.Fatal("过短口令应被拒")
+		t.Fatal("short password should be rejected")
 	}
 }
 
@@ -100,7 +100,7 @@ func TestWebServerReloadSwitchesPort(t *testing.T) {
 	})
 	srv := newWebServer(h)
 
-	// 用两个系统分配的空闲端口验证切换
+	// Use two OS-assigned free ports to verify listener switching.
 	p1 := freePort(t)
 	if err := srv.reload(WebSettings{Port: p1, ListenAddr: "127.0.0.1"}); err != nil {
 		t.Fatalf("reload p1: %v", err)
@@ -113,16 +113,16 @@ func TestWebServerReloadSwitchesPort(t *testing.T) {
 	}
 	waitServe(t, p2)
 
-	// 旧端口应在优雅关闭后不再接受连接
+	// The old port should stop accepting connections after graceful shutdown.
 	time.Sleep(1500 * time.Millisecond)
 	if c, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(p1)), 300*time.Millisecond); err == nil {
 		c.Close()
-		t.Fatalf("旧端口 %d 切换后仍在监听", p1)
+		t.Fatalf("old port %d is still listening after the switch", p1)
 	}
 
-	// 非法端口应被拒，且不影响现有监听
+	// Invalid ports must be rejected without affecting the current listener.
 	if err := srv.applyWebSettings(WebSettings{Port: 70000, ListenAddr: "127.0.0.1"}); err == nil {
-		t.Fatal("非法端口应被拒")
+		t.Fatal("invalid port should be rejected")
 	}
 	waitServe(t, p2)
 }
@@ -138,53 +138,53 @@ func waitServe(t *testing.T, port int) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("端口 %d 未在预期时间内提供服务", port)
+	t.Fatalf("port %d did not begin serving within the expected time", port)
 }
 
 func freePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("取空闲端口失败: %v", err)
+		t.Fatalf("failed to obtain a free port: %v", err)
 	}
 	defer ln.Close()
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-// 界面上改过端口会落盘。之后再带 -web 启动时，命令行必须说话算话，
-// 否则用户敲了参数却连不上，还没有任何提示（ct-54 上真实踩到）。
+// Ports changed in the UI are persisted. On a later start with -web explicitly
+// supplied, the command-line value must win rather than silently using stale state.
 func TestLoadWebSettingsExplicitFlagWins(t *testing.T) {
 	dir := t.TempDir()
 
-	// 首次启动：建档存 8899
+	// First start: persist 8899.
 	if _, err := loadWebSettings(dir, 8899, false); err != nil {
-		t.Fatalf("首次: %v", err)
+		t.Fatalf("initial load: %v", err)
 	}
 
-	// 不带 -web 重启：沿用盘上的 8899，不被默认值覆盖
+	// Restart without -web: retain persisted 8899.
 	s, err := loadWebSettings(dir, 8899, false)
 	if err != nil {
-		t.Fatalf("沿用: %v", err)
+		t.Fatalf("reuse persisted value: %v", err)
 	}
 	if s.Port != 8899 {
-		t.Fatalf("没显式指定时应沿用盘上的值，实际 %d", s.Port)
+		t.Fatalf("without an explicit flag, persisted value should be retained; got %d", s.Port)
 	}
 
-	// 显式 -web 80：以命令行为准
+	// Explicit -web 80: command line wins.
 	s, err = loadWebSettings(dir, 80, true)
 	if err != nil {
-		t.Fatalf("显式指定: %v", err)
+		t.Fatalf("explicit value: %v", err)
 	}
 	if s.Port != 80 {
-		t.Fatalf("显式 -web 应压过盘上的值，实际 %d", s.Port)
+		t.Fatalf("explicit -web should override persisted value, got %d", s.Port)
 	}
 
-	// 且要落盘，下次不带参数启动仍是 80
+	// The explicit value should also be persisted for the next start.
 	s, err = loadWebSettings(dir, 8899, false)
 	if err != nil {
-		t.Fatalf("复读: %v", err)
+		t.Fatalf("reload persisted explicit value: %v", err)
 	}
 	if s.Port != 80 {
-		t.Fatalf("显式指定的端口应已写回，实际 %d", s.Port)
+		t.Fatalf("explicit port should have been written back, got %d", s.Port)
 	}
 }
