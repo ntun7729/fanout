@@ -11,65 +11,63 @@ import (
 	"strings"
 )
 
-// nativeClient 是一个可连接的客户端凭据。
-// 复制入站时同一个 client 会挂到所有出口上，用户换出口只需要改端口。
+// nativeClient is one set of client credentials. Cloned inbounds reuse the same
+// client credentials across exits so switching exits only requires changing the port.
 type nativeClient struct {
 	Email    string `json:"email"`
-	ID       string `json:"id"`       // vless/vmess 用 UUID
-	Password string `json:"password"` // trojan 用密码
+	ID       string `json:"id"`       // UUID for VLESS/VMess.
+	Password string `json:"password"` // Password for Trojan.
 	Enable   bool   `json:"enable"`
-	// Flow 只对 VLESS 有意义，取值 "" 或 xtls-rprx-vision。
-	// Vision 要求底层是 TCP + TLS/REALITY，其他组合下 Xray 会直接拒绝启动。
+	// Flow only applies to VLESS and is either empty or xtls-rprx-vision.
+	// Vision requires TCP + TLS/REALITY; Xray rejects other combinations.
 	Flow string `json:"flow,omitempty"`
 }
 
-// nativeInbound 是自建模式下的一个入站。
-//
-// 字段刻意贴着 3x-ui 的入站语义，这样两种后端在界面上表现一致。
+// nativeInbound represents one inbound managed by fanout's native backend.
+// Fields intentionally mirror 3x-ui semantics so both backends behave the same in the UI.
 type nativeInbound struct {
 	ID       int    `json:"id"`
 	Port     int    `json:"port"`
 	Protocol string `json:"protocol"` // vless | vmess | trojan
 	Network  string `json:"network"`  // tcp | ws | grpc | httpupgrade | xhttp
-	Path     string `json:"path"`     // ws/httpupgrade/xhttp 路径，grpc 用作 serviceName
-	Host     string `json:"host"`     // ws/httpupgrade/xhttp 的 Host 头
-	// Security 是传输层安全：none | tls | reality
+	Path     string `json:"path"`     // Path for ws/httpupgrade/xhttp; serviceName for gRPC.
+	Host     string `json:"host"`     // Host header for ws/httpupgrade/xhttp.
+	// Security is transport security: none | tls | reality.
 	Security string         `json:"security"`
 	TLS      *tlsConfig     `json:"tls,omitempty"`
 	Reality  *realityConfig `json:"reality,omitempty"`
 	Remark   string         `json:"remark"`
 	Enable   bool           `json:"enable"`
 	Clients  []nativeClient `json:"clients"`
-	// BoundTo 是绑定的节点主机名经 sanitizeTag 后的形式，空表示直连
+	// BoundTo is the sanitized hostname of the bound node; empty means direct routing.
 	BoundTo string `json:"bound_to"`
 }
 
-// tlsConfig 是标准 TLS 的配置。证书要么由用户提供路径，要么 fanout 生成自签的。
+// tlsConfig stores standard TLS settings. Certificates are either user-provided
+// or self-signed by fanout.
 type tlsConfig struct {
 	ServerName string `json:"server_name"`
 	CertFile   string `json:"cert_file"`
 	KeyFile    string `json:"key_file"`
-	// SelfSigned 记录证书是 fanout 生成的，分享链接要带 allowInsecure
+	// SelfSigned records whether fanout generated the certificate.
 	SelfSigned bool `json:"self_signed"`
-	// CertSha256 是证书的 SHA-256 指纹（十六进制）。
-	// 自签证书客户端验不过，Xray 26.x 起 allowInsecure 已被移除，
-	// 改为在链接里带指纹让客户端固定信任这一张证书。
+	// CertSha256 is the certificate's SHA-256 fingerprint in hexadecimal. Modern
+	// Xray clients can pin this fingerprint instead of relying on allowInsecure.
 	CertSha256 string `json:"cert_sha256,omitempty"`
 }
 
-// realityConfig 是 REALITY 的配置。
-//
-// PublicKey 服务端用不到，但客户端必须填，所以一并存下来供生成分享链接。
+// realityConfig stores REALITY settings. PublicKey is not needed by the server
+// but is persisted because clients require it in share links.
 type realityConfig struct {
-	Dest        string   `json:"dest"` // 借用的真实站点，如 www.microsoft.com:443
+	Dest        string   `json:"dest"` // Real destination site, e.g. www.microsoft.com:443.
 	ServerNames []string `json:"server_names"`
 	PrivateKey  string   `json:"private_key"`
 	PublicKey   string   `json:"public_key"`
 	ShortIDs    []string `json:"short_ids"`
-	Fingerprint string   `json:"fingerprint"` // 客户端指纹，如 chrome
+	Fingerprint string   `json:"fingerprint"` // Client fingerprint, e.g. chrome.
 }
 
-// tag 复原这个入站在 Xray 里的 inboundTag，格式与 3x-ui 保持一致。
+// tag reconstructs the Xray inboundTag using the same format as 3x-ui.
 func (n *nativeInbound) tag() string {
 	return fmt.Sprintf("in-%d-%s", n.Port, n.netOrTCP())
 }
@@ -88,7 +86,7 @@ func (n *nativeInbound) securityOrNone() string {
 	return n.Security
 }
 
-// nativeStore 是自建模式的持久状态。
+// nativeStore is the persisted state for native mode.
 type nativeStore struct {
 	NextID   int              `json:"next_id"`
 	Inbounds []*nativeInbound `json:"inbounds"`
@@ -106,7 +104,7 @@ func loadNativeStore(dir string) (*nativeStore, error) {
 	}
 	var st nativeStore
 	if err := json.Unmarshal(blob, &st); err != nil {
-		return nil, fmt.Errorf("解析 %s 失败: %w", nativeStatePath(dir), err)
+		return nil, fmt.Errorf("failed to parse %s: %w", nativeStatePath(dir), err)
 	}
 	if st.NextID < 1 {
 		st.NextID = 1
@@ -136,8 +134,8 @@ func (s *nativeStore) byID(id int) *nativeInbound {
 }
 
 func (s *nativeStore) usedPorts() map[int]bool {
-	// 先并入外部工具（如 xray-cf-lite）占用的端口，再叠加自己的入站，
-	// 这样随机分配和手填校验都会避开它们，避免端口撞车。
+	// Include ports used by external tools such as xray-cf-lite before adding our
+	// own inbounds, so both random allocation and manual validation avoid collisions.
 	used := externalUsedPorts()
 	for _, ib := range s.Inbounds {
 		used[ib.Port] = true
@@ -145,7 +143,7 @@ func (s *nativeStore) usedPorts() map[int]bool {
 	return used
 }
 
-// sorted 返回按端口排序的入站，让界面顺序稳定。
+// sorted returns inbounds by port for stable UI ordering.
 func (s *nativeStore) sorted() []*nativeInbound {
 	out := make([]*nativeInbound, len(s.Inbounds))
 	copy(out, s.Inbounds)
@@ -153,11 +151,11 @@ func (s *nativeStore) sorted() []*nativeInbound {
 	return out
 }
 
-// newUUID 生成 Xray 认的 UUID v4。
+// newUUID generates an Xray-compatible UUID v4.
 func newUUID() string {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		// 随机源不可用时退回一个仍然唯一的形式，避免建站直接失败
+		// Fall back to a still-unique form if the random source is unavailable.
 		return fmt.Sprintf("00000000-0000-4000-8000-%012x", os.Getpid())
 	}
 	b[6] = (b[6] & 0x0f) | 0x40
@@ -166,7 +164,7 @@ func newUUID() string {
 	return strings.Join([]string{h[0:8], h[8:12], h[12:16], h[16:20], h[20:32]}, "-")
 }
 
-// randomHex 生成 n 字节的随机十六进制串，用作 trojan 密码与 ws 路径。
+// randomHex generates n random bytes encoded as hexadecimal for Trojan passwords and transport paths.
 func randomHex(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
