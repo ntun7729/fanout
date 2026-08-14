@@ -5,19 +5,21 @@ import (
 	"os"
 )
 
-// externalXrayConfigs 是其它工具装的系统级 Xray 配置，fanout 自己不写，
-// 但要避开它们占用的入站端口，免得两边端口撞车、Xray 起不来。
+// externalXrayConfigs lists system-level Xray configurations installed by
+// other tools. fanout never writes these files, but it avoids inbound ports
+// they already use so the two installations do not collide and prevent Xray
+// from starting.
 //
-// 目前覆盖 byJoey/xray-cf-lite：它把 Xray 装成系统服务，
-// 配置固定落在 /usr/local/etc/xray/config.json。
+// This currently covers byJoey/xray-cf-lite, which installs Xray as a system
+// service with a fixed configuration path.
 var externalXrayConfigs = []string{
 	"/usr/local/etc/xray/config.json",
 }
 
-// externalUsedPorts 读取外部 Xray 配置里 inbounds 的监听端口。
+// externalUsedPorts reads inbound listen ports from external Xray configs.
 //
-// 只读不写，任何一个文件不存在或解析失败都静默跳过，
-// 保证 fanout 在没有这些工具的机器上行为完全不变。
+// This is read-only. Missing or invalid files are silently skipped so fanout
+// behaves exactly the same on systems without these tools.
 func externalUsedPorts() map[int]bool {
 	used := map[int]bool{}
 	for _, path := range externalXrayConfigs {
@@ -33,9 +35,9 @@ func mergeXrayConfigPorts(path string, used map[int]bool) {
 	}
 	var cfg struct {
 		Inbounds []struct {
-			// port 在 Xray 配置里可能是数字，也可能是 "1000-2000" 这类端口段字符串。
-			// 用 RawMessage 逐条宽松解析：数字就取，非数字就跳过，
-			// 避免一个端口段字符串让整个数组解析失败。
+			// Xray ports can be numbers or range strings such as "1000-2000".
+			// Parse each RawMessage leniently: record numeric ports and skip
+			// non-numeric values so one range does not invalidate the whole array.
 			Port json.RawMessage `json:"port"`
 		} `json:"inbounds"`
 	}
