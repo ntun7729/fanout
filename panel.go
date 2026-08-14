@@ -9,14 +9,15 @@ import (
 	"sync"
 )
 
-// Panel 是 fanout 管理节点链接的后端。
+// Panel is fanout's node-link backend.
 //
-// 有两个实现：接管本机 3x-ui 面板的 XUI，以及 fanout 自己跑 Xray 的 Native。
-// 界面和编排层只依赖这个接口，两种模式下的操作语义完全一致。
+// Implementations include XUI for an installed 3x-ui panel and Native for
+// fanout-managed Xray. The UI and orchestration layer depend only on this
+// interface so operations behave consistently across backends.
 type Panel interface {
-	// Kind 返回 "3x-ui" 或 "native"，界面据此提示当前模式。
+	// Kind returns "3x-ui", "native", or another backend identifier used by the UI.
 	Kind() string
-	// Describe 给出一行人能读的后端说明。
+	// Describe returns a short human-readable backend description.
 	Describe() string
 
 	Inbounds(live map[string]bool) ([]Inbound, error)
@@ -30,40 +31,37 @@ type Panel interface {
 	CloneToTunnels(templateID int, hosts []string, tunnels []*Tunnel) ([]int, error)
 	DeleteInbounds(ids []int, tunnels []*Tunnel) error
 
-	// CreateInbound 新建一个入站。自建模式写自己的库并重建 Xray 配置，
-	// 接管 3x-ui 时走面板的 inbounds/add API，让面板照常管这条入站。
+	// CreateInbound creates an inbound. Native mode writes its own store and
+	// rebuilds Xray; 3x-ui uses the panel's inbounds/add API.
 	CreateInbound(spec NewInboundSpec, tunnels []*Tunnel) (*CreatedInbound, error)
 
-	// UpdateInbound 改端口、备注与启停。只有非零/非 nil 的字段会被写入。
+	// UpdateInbound changes port, remark, or enabled state. Nil fields are left unchanged.
 	UpdateInbound(id int, patch InboundPatch, tunnels []*Tunnel) error
 
-	// AddClient 给入站加一个客户端，email 留空时自动命名。
+	// AddClient adds a client; an empty email is named automatically.
 	AddClient(id int, email string, tunnels []*Tunnel) error
-	// DeleteClient 摘掉入站上的一个客户端。
+	// DeleteClient removes one client from an inbound.
 	DeleteClient(id int, email string, tunnels []*Tunnel) error
-	// ResetClient 换掉客户端的凭据（UUID / trojan 密码），已分发的旧链接随即失效。
+	// ResetClient replaces client credentials, immediately invalidating old links.
 	ResetClient(id int, email string, tunnels []*Tunnel) error
 
-	// OnTunnelsChanged 在隧道集合变化后调用。
-	//
-	// 自建模式的出站完全由隧道列表推导，新开的出口必须重建配置才有对应出站；
-	// 接管 3x-ui 时出站在 Bind/Clone 里顺带同步，这里是空操作，
-	// 免得每开一条隧道就白重启一次面板的 Xray。
+	// OnTunnelsChanged runs after the tunnel set changes. Native mode derives its
+	// outbounds from tunnels and must rebuild; 3x-ui synchronizes during Bind/Clone
+	// and treats this as a no-op to avoid unnecessary Xray restarts.
 	OnTunnelsChanged(tunnels []*Tunnel) error
 
-	// Close 释放后端占用的资源。自建模式要停掉自己拉起的 Xray，
-	// 否则 fanout 退出后它会变成孤儿进程，下次启动撞端口。
+	// Close releases backend resources. Native mode must stop its own Xray process.
 	Close()
 }
 
-// InboundPatch 描述对入站的一次局部修改。指针为 nil 表示该字段不动。
+// InboundPatch describes a partial inbound update. Nil means leave the field unchanged.
 type InboundPatch struct {
 	Port   *int
 	Remark *string
 	Enable *bool
 }
 
-// CreatedInbound 是新建入站后回给界面的摘要。
+// CreatedInbound is the summary returned to the UI after creating an inbound.
 type CreatedInbound struct {
 	ID       int    `json:"id"`
 	Port     int    `json:"port"`
@@ -73,7 +71,7 @@ type CreatedInbound struct {
 	Security string `json:"security"`
 }
 
-// closePanel 在进程退出时释放后端资源。
+// closePanel releases backend resources during process shutdown.
 func closePanel() {
 	panelState.mu.Lock()
 	p := panelState.current
@@ -83,7 +81,8 @@ func closePanel() {
 	}
 }
 
-// panelState 缓存已选定的后端。探测涉及执行 x-ui 命令，没必要每个请求都做一次。
+// panelState caches the selected backend. Detection may execute x-ui commands,
+// so it should not run for every request.
 var panelState struct {
 	mu      sync.Mutex
 	current Panel
@@ -91,11 +90,11 @@ var panelState struct {
 	forced  string
 }
 
-// panelModeFile 存界面里选过的后端。命令行 -panel 优先级更高。
+// panelModeFile stores the backend selected in the UI. The -panel flag has higher priority.
 func panelModeFile(dir string) string { return filepath.Join(dir, "panel_mode") }
 
-// configurePanel 记录自建模式需要的工作目录与用户指定的模式。
-// mode 为空表示读盘上界面选过的模式，都没有才自动探测。
+// configurePanel records the working directory and requested mode. Empty mode
+// loads the saved UI choice, then falls back to automatic detection.
 func configurePanel(workDir, mode string) {
 	panelState.mu.Lock()
 	defer panelState.mu.Unlock()
@@ -110,7 +109,7 @@ func configurePanel(workDir, mode string) {
 	panelState.current = nil
 }
 
-// savePanelMode 把界面选的后端记到工作目录，重启后仍然生效。空值等于删档回到自动探测。
+// savePanelMode persists a UI backend choice. Empty mode removes the saved choice and restores auto-detection.
 func savePanelMode(dir, mode string) error {
 	if dir == "" {
 		return nil
@@ -125,10 +124,10 @@ func savePanelMode(dir, mode string) error {
 	return os.WriteFile(path, []byte(mode), 0600)
 }
 
-// openPanel 返回当前可用的后端。
+// openPanel returns the currently available backend.
 //
-// 优先接管本机已装的 3x-ui：用户既然装了面板，入站大概率在那边管着，
-// fanout 另起一个 Xray 会和面板抢端口。探测不到才用自建模式。
+// Automatic mode prefers installed node managers to avoid launching another
+// Xray instance that could collide with their inbound ports.
 func openPanel() (Panel, error) {
 	panelState.mu.Lock()
 	defer panelState.mu.Unlock()
@@ -141,7 +140,7 @@ func openPanel() (Panel, error) {
 	case "3x-ui":
 		x, err := DetectXUI(panelState.workDir)
 		if err != nil {
-			return nil, fmt.Errorf("指定了 3x-ui 模式但探测失败: %w", err)
+			return nil, fmt.Errorf("3x-ui mode was selected but detection failed: %w", err)
 		}
 		panelState.current = x
 		return x, nil
@@ -155,7 +154,7 @@ func openPanel() (Panel, error) {
 	case "xray-cf-lite":
 		xc, err := DetectXCL()
 		if err != nil {
-			return nil, fmt.Errorf("指定了 xray-cf-lite 模式但探测失败: %w", err)
+			return nil, fmt.Errorf("xray-cf-lite mode was selected but detection failed: %w", err)
 		}
 		panelState.current = xc
 		return xc, nil
@@ -170,8 +169,8 @@ func openPanel() (Panel, error) {
 		panelState.current = x
 		return x, nil
 	} else if !xuiAbsent() {
-		// 面板装了却读不出配置，这时自建模式会和它抢端口，宁可报错让用户看见
-		return nil, fmt.Errorf("检测到 3x-ui 但读取配置失败: %w", err)
+		// If 3x-ui is installed but unreadable, do not start native Xray and risk port collisions.
+		return nil, fmt.Errorf("3x-ui was detected but its configuration could not be read: %w", err)
 	}
 
 	n, err := openNative(panelState.workDir)
@@ -182,7 +181,7 @@ func openPanel() (Panel, error) {
 	return n, nil
 }
 
-// currentPanelMode 返回当前生效的后端类型（forced 为空时按已选定的 current 推断）。
+// currentPanelMode returns the effective backend mode.
 func currentPanelMode() string {
 	panelState.mu.Lock()
 	defer panelState.mu.Unlock()
@@ -195,7 +194,7 @@ func currentPanelMode() string {
 	return ""
 }
 
-// availablePanelModes 探测每种后端在本机是否可用，供界面渲染可选项。
+// availablePanelModes detects which backends are available for the Settings UI.
 func availablePanelModes(workDir string) []map[string]any {
 	modes := []map[string]any{}
 
@@ -209,23 +208,22 @@ func availablePanelModes(workDir string) []map[string]any {
 	if _, err := DetectXUI(workDir); err != nil {
 		xuiOK, xuiReason = false, err.Error()
 	}
-	modes = append(modes, map[string]any{"mode": "3x-ui", "label": "3x-ui 面板", "available": xuiOK, "reason": xuiReason})
+	modes = append(modes, map[string]any{"mode": "3x-ui", "label": "3x-ui panel", "available": xuiOK, "reason": xuiReason})
 
-	// 自建模式总是可用（fanout 自己跑 Xray），前提是能找到 xray 二进制，这里不预判，交给切换时报错。
-	modes = append(modes, map[string]any{"mode": "native", "label": "自建 Xray", "available": true, "reason": ""})
+	// Native mode is generally available; exact Xray binary validation occurs on switch.
+	modes = append(modes, map[string]any{"mode": "native", "label": "Built-in Xray", "available": true, "reason": ""})
 
 	return modes
 }
 
-// switchPanelMode 运行时切换后端。mode 传空表示恢复自动探测。
-//
-// 先关掉旧后端释放资源，再按新模式探测；探测失败时回滚到自动模式，
-// 避免把 fanout 卡在一个连不上的后端上。
+// switchPanelMode switches backends at runtime. Empty mode restores automatic detection.
+// The old backend is closed first; if the requested backend fails, selection rolls
+// back to automatic mode so fanout is not stuck on an unusable backend.
 func switchPanelMode(mode string) (Panel, error) {
 	switch mode {
 	case "", "3x-ui", "native", "xray-cf-lite":
 	default:
-		return nil, fmt.Errorf("未知后端模式 %q", mode)
+		return nil, fmt.Errorf("unknown backend mode %q", mode)
 	}
 
 	panelState.mu.Lock()
@@ -243,7 +241,7 @@ func switchPanelMode(mode string) (Panel, error) {
 
 	p, err := openPanel()
 	if err != nil {
-		// 回滚到自动探测，别把用户卡在坏模式里
+		// Roll back to automatic detection instead of trapping the user in a broken mode.
 		panelState.mu.Lock()
 		panelState.forced = ""
 		panelState.current = nil
@@ -251,12 +249,12 @@ func switchPanelMode(mode string) (Panel, error) {
 		return nil, err
 	}
 	if err := savePanelMode(workDir, mode); err != nil {
-		log.Printf("记录后端模式失败（本次切换仍然生效）: %v", err)
+		log.Printf("failed to persist backend mode (the current switch is still active): %v", err)
 	}
 	return p, nil
 }
 
-// xuiAbsent 判断本机是否根本没装 3x-ui。
+// xuiAbsent reports whether 3x-ui is not installed at all.
 func xuiAbsent() bool {
 	if _, err := os.Stat(xuiBinary); err == nil {
 		return false
