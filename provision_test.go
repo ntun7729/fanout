@@ -26,14 +26,14 @@ func TestPickNodesSkipsRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].HostName != "jp2" {
-		t.Fatalf("想拿到未占用的 jp2，实际 %+v", got)
+		t.Fatalf("expected unused jp2, got %+v", got)
 	}
 }
 
 func TestPickNodesRegionMismatch(t *testing.T) {
 	m := mgrWith(sample, "kr1")
 	if _, err := m.pickNodes("KR", 1); err == nil {
-		t.Fatal("KR 只有一个节点且已占用，应当报错")
+		t.Fatal("KR has only one node and it is already in use; expected an error")
 	}
 }
 
@@ -41,44 +41,44 @@ func TestRegionsExcludesRunning(t *testing.T) {
 	m := mgrWith(sample, "jp1")
 	for _, r := range m.Regions() {
 		if r.Code == "JP" && r.Available != 1 {
-			t.Fatalf("JP 应剩 1 个空闲，实际 %d", r.Available)
+			t.Fatalf("JP should have 1 available node, got %d", r.Available)
 		}
 		if r.Code == "KR" && r.BestSpeed != 150 {
-			t.Fatalf("KR 最高速应为 150，实际 %v", r.BestSpeed)
+			t.Fatalf("KR best speed should be 150, got %v", r.BestSpeed)
 		}
 	}
 }
 
 func TestJobLifecycle(t *testing.T) {
 	var s JobStore
-	j := s.New("测试", []string{"a", "b"})
+	j := s.New("test", []string{"a", "b"})
 	if v := j.View(); v.Total != 2 || v.Done != 0 || v.Status != "running" {
-		t.Fatalf("初始状态不对: %+v", v)
+		t.Fatalf("unexpected initial state: %+v", v)
 	}
 
 	j.Set(0, "ok", "1.2.3.4")
-	j.Set(1, "failed", "连不上")
+	j.Set(1, "failed", "connection failed")
 	j.Finish()
 
 	v := j.View()
 	if v.Status != "failed" || v.Done != 2 {
-		t.Fatalf("有失败步骤时整体应为 failed: %+v", v)
+		t.Fatalf("job should be failed when any step fails: %+v", v)
 	}
 	if v.Steps[0].Detail != "1.2.3.4" {
-		t.Fatalf("步骤详情丢失: %+v", v.Steps[0])
+		t.Fatalf("step detail was lost: %+v", v.Steps[0])
 	}
 
 	s.Dismiss(j.ID())
 	if len(s.Views()) != 0 {
-		t.Fatal("Dismiss 后不应还留着")
+		t.Fatal("job should be removed after Dismiss")
 	}
 }
 
 func TestFirstLine(t *testing.T) {
-	if got := firstLine("第一行\n第二行"); got != "第一行" {
+	if got := firstLine("first line\nsecond line"); got != "first line" {
 		t.Fatalf("firstLine = %q", got)
 	}
-	if got := firstLine("只有一行"); got != "只有一行" {
+	if got := firstLine("single line"); got != "single line" {
 		t.Fatalf("firstLine = %q", got)
 	}
 }
