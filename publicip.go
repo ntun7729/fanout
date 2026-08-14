@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-// publicIPSources 是几个只回一行纯 IPv4 的接口，任意一个先返回就用它。
+// publicIPSources are endpoints that return a single plain IPv4 address. The
+// first valid response is used.
 var publicIPSources = []string{
 	"https://api.ipify.org",
 	"https://ipv4.icanhazip.com",
@@ -17,23 +18,24 @@ var publicIPSources = []string{
 
 var (
 	publicIPMu       sync.Mutex
-	publicIPOverride string    // 由 -ip / FANOUT_PUBLIC_IP 显式指定，优先级最高
-	publicIPCache    string    // 上一次探测成功的结果
-	publicIPAt       time.Time // 上次探测时间，用于 TTL
+	publicIPOverride string    // Explicitly supplied by -ip / FANOUT_PUBLIC_IP; highest priority.
+	publicIPCache    string    // Most recent successful detection result.
+	publicIPAt       time.Time // Detection time used for TTL.
 )
 
 const publicIPTTL = 30 * time.Minute
 
-// setPublicIPOverride 记录用户显式指定的母机公网地址，空值表示不覆盖。
+// setPublicIPOverride records an explicitly supplied host public address. An
+// empty value means no override.
 func setPublicIPOverride(ip string) {
 	publicIPMu.Lock()
 	publicIPOverride = strings.TrimSpace(ip)
 	publicIPMu.Unlock()
 }
 
-// hostPublicIP 返回跑 fanout 这台母机的公网 IPv4。
-// 优先用显式覆盖值；否则用缓存（未过期）；再否则对外探测一次。
-// 探测不到就返回空串，由调用方决定兜底。
+// hostPublicIP returns the public IPv4 address of the host running fanout.
+// Explicit override wins, then a non-expired cache, then a fresh probe. If all
+// probes fail, an empty string is returned unless an older cached value exists.
 func hostPublicIP() string {
 	publicIPMu.Lock()
 	if publicIPOverride != "" {
@@ -50,7 +52,7 @@ func hostPublicIP() string {
 
 	ip := probePublicIP()
 	if ip == "" {
-		// 探测失败时退回上一次的结果，比直接空着强
+		// On probe failure, prefer the last successful value over returning empty.
 		publicIPMu.Lock()
 		ip = publicIPCache
 		publicIPMu.Unlock()
@@ -64,7 +66,7 @@ func hostPublicIP() string {
 	return ip
 }
 
-// probePublicIP 逐个问外部接口，拿到第一个合法的 IPv4 就返回。
+// probePublicIP queries external endpoints and returns the first valid IPv4 response.
 func probePublicIP() string {
 	for _, url := range publicIPSources {
 		out, err := exec.Command("curl", "-4", "-s", "--max-time", "5", url).Output()
