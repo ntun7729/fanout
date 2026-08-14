@@ -12,7 +12,7 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 const indexHTML = `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -196,14 +196,14 @@ textarea:focus{outline:none;border-color:var(--accent)}
   <h1>fanout</h1>
   <span class="count" id="panel"></span>
   <span class="spacer"></span>
-  <button class="icon" id="settingsBtn" title="设置">
+  <button class="icon" id="settingsBtn" title="Settings">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
   </button>
   <nav class="links">
-    <a href="https://t.me/+ft-zI76oovgwNmRh" target="_blank" rel="noopener">交流群</a>
-    <a href="https://youtube.com/@joeyblog" target="_blank" rel="noopener">油管</a>
-    <a href="https://joeyblog.net" target="_blank" rel="noopener">博客</a>
-    <a href="https://github.com/byJoey/fanout" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://t.me/+ft-zI76oovgwNmRh" target="_blank" rel="noopener">Telegram</a>
+    <a href="https://youtube.com/@joeyblog" target="_blank" rel="noopener">YouTube</a>
+    <a href="https://joeyblog.net" target="_blank" rel="noopener">Blog</a>
+    <a href="https://github.com/ntun7729/fanout" target="_blank" rel="noopener">GitHub</a>
   </nav>
 </header>
 
@@ -211,24 +211,24 @@ textarea:focus{outline:none;border-color:var(--accent)}
   <div class="jobs" id="jobs"></div>
 
   <div class="bar">
-    <h2>出口</h2>
+    <h2>Exits</h2>
     <span class="count" id="ecount"></span>
     <span class="spacer"></span>
-    <button id="exportAll" title="导出全部节点链接">
+    <button id="exportAll" title="Export all node links">
       <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
-      导出链接
+      Export Links
     </button>
-    <button id="stopall" title="停止所有出口">
+    <button id="stopall" title="Stop all exits">
       <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-      全部停止
+      Stop All
     </button>
-    <button id="newnode" title="新建一个节点（协议与端口）">
+    <button id="newnode" title="Create a node with a protocol and port">
       <svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h10"/></svg>
-      新建节点
+      New Node
     </button>
     <button class="primary" id="newexit">
       <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-      新建出口
+      New Exit
     </button>
   </div>
 
@@ -240,33 +240,33 @@ textarea:focus{outline:none;border-color:var(--accent)}
 <div class="modal" id="wizard">
   <div class="sheet">
     <div class="head">
-      <h2>新建出口</h2>
+      <h2>New Exit</h2>
       <span class="spacer"></span>
-      <button class="icon" data-close="wizard" title="关闭">
+      <button class="icon" data-close="wizard" title="Close">
         <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
     </div>
     <div class="body">
       <label class="f">
-        <span>地区</span>
-        <input type="search" id="rgfilter" placeholder="筛选地区">
+        <span>Region</span>
+        <input type="search" id="rgfilter" placeholder="Filter regions">
         <div class="regions" id="regions" style="margin-top:6px"></div>
       </label>
       <label class="f">
-        <span>数量</span>
+        <span>Quantity</span>
         <div class="stepper">
-          <button id="minus" title="减少">
+          <button id="minus" title="Decrease">
             <svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg>
           </button>
           <input id="count" type="text" inputmode="numeric" value="3">
-          <button id="plus" title="增加">
+          <button id="plus" title="Increase">
             <svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
           </button>
         </div>
         <div class="hint" id="availhint"></div>
       </label>
       <label class="f" id="tplwrap">
-        <span>节点链接</span>
+        <span>Node link</span>
         <select id="tpl"></select>
         <div class="hint" id="tplhint"></div>
       </label>
@@ -274,8 +274,8 @@ textarea:focus{outline:none;border-color:var(--accent)}
     <div class="foot">
       <span class="count" id="wzhint"></span>
       <span class="spacer"></span>
-      <button data-close="wizard">取消</button>
-      <button class="primary" id="go">开始</button>
+      <button data-close="wizard">Cancel</button>
+      <button class="primary" id="go">Start</button>
     </div>
   </div>
 </div>
@@ -283,15 +283,15 @@ textarea:focus{outline:none;border-color:var(--accent)}
 <div class="modal" id="newnodebox">
   <div class="sheet">
     <div class="head">
-      <h2>新建节点</h2>
+      <h2>New Node</h2>
       <span class="spacer"></span>
-      <button class="icon" data-close="newnodebox" title="关闭">
+      <button class="icon" data-close="newnodebox" title="Close">
         <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
     </div>
     <div class="body">
       <label class="f">
-        <span>协议</span>
+        <span>Protocol</span>
         <select id="nproto">
           <option value="vless">VLESS</option>
           <option value="vmess">VMess</option>
@@ -299,7 +299,7 @@ textarea:focus{outline:none;border-color:var(--accent)}
         </select>
       </label>
       <label class="f">
-        <span>传输</span>
+        <span>Transport</span>
         <select id="nnet">
           <option value="tcp">TCP</option>
           <option value="ws">WebSocket</option>
@@ -309,52 +309,52 @@ textarea:focus{outline:none;border-color:var(--accent)}
         </select>
       </label>
       <label class="f">
-        <span>安全</span>
+        <span>Security</span>
         <select id="nsec">
-          <option value="none">无</option>
+          <option value="none">None</option>
           <option value="tls">TLS</option>
           <option value="reality">REALITY</option>
         </select>
         <div class="hint" id="nsechint"></div>
       </label>
       <label class="f" id="nvisionwrap" hidden>
-        <span>流控</span>
+        <span>Flow control</span>
         <label class="chk"><input type="checkbox" id="nvision"> xtls-rprx-vision</label>
       </label>
       <label class="f" id="nsniwrap" hidden>
-        <span>域名 SNI</span>
-        <input id="nsni" type="text" placeholder="留空用 localhost，将生成自签证书">
+        <span>Domain / SNI</span>
+        <input id="nsni" type="text" placeholder="Leave blank for localhost and a self-signed certificate">
       </label>
       <label class="f" id="ncertwrap" hidden>
-        <span>证书路径</span>
-        <input id="ncert" type="text" placeholder="留空生成自签证书，如 /etc/ssl/x.crt">
+        <span>Certificate path</span>
+        <input id="ncert" type="text" placeholder="Leave blank to generate one, e.g. /etc/ssl/x.crt">
       </label>
       <label class="f" id="nkeywrap" hidden>
-        <span>私钥路径</span>
-        <input id="nkey" type="text" placeholder="与证书成对填写，如 /etc/ssl/x.key">
+        <span>Private key path</span>
+        <input id="nkey" type="text" placeholder="Enter with the certificate, e.g. /etc/ssl/x.key">
       </label>
       <label class="f" id="ndestwrap" hidden>
-        <span>借用站点</span>
-        <input id="ndest" type="text" placeholder="留空用 www.tesla.com:443">
+        <span>Destination site</span>
+        <input id="ndest" type="text" placeholder="Leave blank for www.tesla.com:443">
       </label>
       <label class="f" id="npathwrap" hidden>
-        <span id="npathlabel">路径</span>
-        <input id="npath" type="text" placeholder="留空自动生成">
+        <span id="npathlabel">Path</span>
+        <input id="npath" type="text" placeholder="Leave blank to generate automatically">
       </label>
       <label class="f">
-        <span>端口</span>
-        <input id="nport" type="text" inputmode="numeric" placeholder="留空随机分配">
+        <span>Port</span>
+        <input id="nport" type="text" inputmode="numeric" placeholder="Leave blank for a random port">
       </label>
       <label class="f">
-        <span>备注</span>
-        <input id="nremark" type="text" placeholder="留空自动命名">
+        <span>Remark</span>
+        <input id="nremark" type="text" placeholder="Leave blank for an automatic name">
       </label>
     </div>
     <div class="foot">
       <span class="count" id="nnhint"></span>
       <span class="spacer"></span>
-      <button data-close="newnodebox">取消</button>
-      <button class="primary" id="ncreate">创建</button>
+      <button data-close="newnodebox">Cancel</button>
+      <button class="primary" id="ncreate">Create</button>
     </div>
   </div>
 </div>
@@ -362,12 +362,12 @@ textarea:focus{outline:none;border-color:var(--accent)}
 <div class="modal" id="detail">
   <div class="sheet">
     <div class="head">
-      <h2 id="dtitle">节点</h2>
+      <h2 id="dtitle">Node</h2>
       <span class="spacer"></span>
-      <button class="icon danger" id="ddel" title="删除这个入站">
+      <button class="icon danger" id="ddel" title="Delete this inbound">
         <svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
       </button>
-      <button class="icon" data-close="detail" title="关闭">
+      <button class="icon" data-close="detail" title="Close">
         <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
     </div>
@@ -378,35 +378,35 @@ textarea:focus{outline:none;border-color:var(--accent)}
 <div class="modal" id="credbox">
   <div class="sheet">
     <div class="head">
-      <h2>SOCKS5 访问凭据</h2>
+      <h2>SOCKS5 Credentials</h2>
       <span class="count" id="crtitle"></span>
       <span class="spacer"></span>
-      <button class="icon" data-close="credbox" title="关闭">
+      <button class="icon" data-close="credbox" title="Close">
         <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
     </div>
     <div class="body">
       <div class="share" id="crurl"></div>
       <div class="credrow">
-        <label class="ef"><span>用户名</span>
+        <label class="ef"><span>Username</span>
           <input id="cruser" type="text" spellcheck="false"></label>
-        <label class="ef"><span>口令</span>
+        <label class="ef"><span>Password</span>
           <input id="crpass" type="text" spellcheck="false"></label>
-        <button id="crrand" title="随机生成一套">
+        <button id="crrand" title="Generate random credentials">
           <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
-          随机
+          Random
         </button>
       </div>
-      <div class="hint">改完立即生效，已连上的会话不断；用旧凭据的客户端要改配置。</div>
+      <div class="hint">Changes take effect immediately without dropping existing sessions. Clients using old credentials must update their configuration.</div>
     </div>
     <div class="foot">
       <button id="crcopy">
         <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        复制地址
+        Copy Address
       </button>
       <span class="spacer"></span>
-      <button data-close="credbox">取消</button>
-      <button class="primary" id="crsave">保存</button>
+      <button data-close="credbox">Cancel</button>
+      <button class="primary" id="crsave">Save</button>
     </div>
   </div>
 </div>
@@ -414,14 +414,14 @@ textarea:focus{outline:none;border-color:var(--accent)}
 <div class="modal" id="export">
   <div class="sheet">
     <div class="head">
-      <h2>节点链接</h2>
+      <h2>Node Links</h2>
       <span class="count" id="excount"></span>
       <span class="spacer"></span>
       <button id="copyall">
         <svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        全部复制
+        Copy All
       </button>
-      <button class="icon" data-close="export" title="关闭">
+      <button class="icon" data-close="export" title="Close">
         <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
     </div>
@@ -432,50 +432,50 @@ textarea:focus{outline:none;border-color:var(--accent)}
 <div class="modal" id="settings">
   <div class="sheet">
     <div class="head">
-      <h2>设置</h2>
+      <h2>Settings</h2>
       <span class="spacer"></span>
-      <button class="icon" data-close="settings" title="关闭">
+      <button class="icon" data-close="settings" title="Close">
         <svg viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
       </button>
     </div>
     <div class="body">
-      <label class="f"><span>访问口令</span>
-        <input id="setPw" type="password" spellcheck="false" autocomplete="new-password" placeholder="留空则不改"></label>
-      <div class="hint">改完只影响新登录，当前这个浏览器不会被踢下线。</div>
+      <label class="f"><span>Access password</span>
+        <input id="setPw" type="password" spellcheck="false" autocomplete="new-password" placeholder="Leave blank to keep unchanged"></label>
+      <div class="hint">Changing this only affects new logins. This browser session will remain signed in.</div>
 
-      <label class="f" style="margin-top:16px"><span>访问路径</span>
-        <input id="setPath" type="text" spellcheck="false" placeholder="留空则去掉路径前缀"></label>
-      <div class="hint" id="setPathHint">界面挂在这个路径下，扫端口的探不到。只能用字母数字和 - _。</div>
+      <label class="f" style="margin-top:16px"><span>Access path</span>
+        <input id="setPath" type="text" spellcheck="false" placeholder="Leave blank to remove the path prefix"></label>
+      <div class="hint" id="setPathHint">The UI is mounted under this path to hide it from simple port scans. Only letters, numbers, - and _ are allowed.</div>
 
-      <label class="f" style="margin-top:16px"><span>节点后端</span>
+      <label class="f" style="margin-top:16px"><span>Node backend</span>
         <select id="setBackend"></select></label>
-      <div class="hint" id="setBackendHint">节点从哪来。装了 3x-ui 或 xray-cf-lite 就能直接接管，都没有就用自建。</div>
+      <div class="hint" id="setBackendHint">Choose where nodes come from. fanout can take over 3x-ui or xray-cf-lite when installed, otherwise it uses its built-in Xray.</div>
 
       <div class="setrow">
-        <label class="f" style="margin:0"><span>监听端口</span>
+        <label class="f" style="margin:0"><span>Listen port</span>
           <input id="setPort" type="text" inputmode="numeric" spellcheck="false"></label>
-        <label class="f" style="margin:0"><span>本地监听地址</span>
+        <label class="f" style="margin:0"><span>Local listen address</span>
           <select id="setListen">
-            <option value="0.0.0.0">所有网卡（0.0.0.0）</option>
-            <option value="127.0.0.1">仅本机（127.0.0.1）</option>
+            <option value="0.0.0.0">All interfaces (0.0.0.0)</option>
+            <option value="127.0.0.1">Localhost only (127.0.0.1)</option>
           </select></label>
       </div>
-      <div class="hint bad" id="setPortHint">改端口或监听地址会切换监听，保存后要用新地址重新打开界面。</div>
+      <div class="hint bad" id="setPortHint">Changing the port or listen address moves the listener. Reopen the UI using the new address after saving.</div>
 
       <div class="updsec">
         <div class="updrow">
-          <div class="updver">版本 <b id="updCur">-</b><span id="updLatest"></span></div>
+          <div class="updver">Version <b id="updCur">-</b><span id="updLatest"></span></div>
           <span class="spacer"></span>
-          <button id="updCheck">检查更新</button>
-          <button class="primary" id="updApply" hidden>更新到 <span id="updApplyVer"></span></button>
+          <button id="updCheck">Check for Updates</button>
+          <button class="primary" id="updApply" hidden>Update to <span id="updApplyVer"></span></button>
         </div>
         <div class="updnotes" id="updNotes" hidden></div>
       </div>
     </div>
     <div class="foot">
       <span class="spacer"></span>
-      <button data-close="settings">取消</button>
-      <button class="primary" id="setSave">保存</button>
+      <button data-close="settings">Cancel</button>
+      <button class="primary" id="setSave">Save</button>
     </div>
   </div>
 </div>
@@ -498,7 +498,7 @@ const ICON = {
   lock:'<svg viewBox="0 0 24 24" class="lock"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
 };
 
-// 界面挂在随机前缀下，请求一律走相对路径
+// The UI is mounted under a random prefix, so all requests use relative paths.
 async function api(path, opts){
   const r = await fetch(path.replace(/^\//, ''), opts);
   const d = await r.json().catch(()=>({}));
@@ -517,16 +517,16 @@ function toast(msg, bad){
   toastTimer = setTimeout(() => { el.className = 'toast'; }, 2400);
 }
 async function copy(text){
-  // navigator.clipboard 只在 HTTPS/localhost 下存在，而面板通常是 http://IP 访问，
-  // 所以必须留一条 execCommand 兜底路径，否则复制在正常使用场景里必然失败。
+  // navigator.clipboard only exists under HTTPS/localhost, while the panel is
+  // commonly opened as http://IP. Keep execCommand as a fallback.
   if(navigator.clipboard && window.isSecureContext){
-    try{ await navigator.clipboard.writeText(text); toast('已复制'); return; }
+    try{ await navigator.clipboard.writeText(text); toast('Copied'); return; }
     catch(e){}
   }
   const ta = document.createElement('textarea');
   ta.value = text;
   ta.setAttribute('readonly', '');
-  // 放在视口内但不可见：置于视口外会让 iOS 在聚焦时滚动页面
+  // Keep it inside the viewport but invisible so iOS does not scroll on focus.
   ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;padding:0;border:0';
   document.body.appendChild(ta);
   const prev = document.activeElement;
@@ -536,47 +536,47 @@ async function copy(text){
   try{ ok = document.execCommand('copy'); }catch(e){}
   ta.remove();
   if(prev && prev.focus) prev.focus();
-  toast(ok ? '已复制' : '复制失败，请手动选中', !ok);
+  toast(ok ? 'Copied' : 'Copy failed. Please select it manually.', !ok);
 }
 
 let view = {exits:[], direct:[], panel:'', backend:'', public_ip:''};
 let inbounds = [];
 
-// 自建模式下入站由 fanout 自己管，界面要提供新建入口；
-// 接管 3x-ui 时入站归面板管，这里只读不写。
+// In native mode fanout owns the inbounds and exposes creation controls.
+// With 3x-ui, the panel owns them and this UI is read-only for creation.
 function isNative(){ return view.backend === 'native'; }
-// xray-cf-lite 模式下节点归它管，fanout 只改路由，界面不给新建入口
+// In xray-cf-lite mode, xray-cf-lite owns nodes and fanout only changes routing.
 function isXCL(){ return view.backend === 'xray-cf-lite'; }
-const BACKEND_NAME = {'native':'自建 Xray', '3x-ui':'3x-ui', 'xray-cf-lite':'xray-cf-lite'};
+const BACKEND_NAME = {'native':'Built-in Xray', '3x-ui':'3x-ui', 'xray-cf-lite':'xray-cf-lite'};
 function backendName(){ return BACKEND_NAME[view.backend] || '3x-ui'; }
 
-const STATUS = {up:'已连通', starting:'连接中', failed:'失败', stopped:'已停止'};
+const STATUS = {up:'Connected', starting:'Connecting', failed:'Failed', stopped:'Stopped'};
 
 function renderExits(){
   const list = $('#list');
   const n = view.exits.length;
-  $('#ecount').textContent = n ? n + ' 个' : '';
+  $('#ecount').textContent = n ? n + (n === 1 ? ' exit' : ' exits') : '';
   $('#exportAll').disabled = !view.exits.some(e => e.inbounds && e.inbounds.length);
   $('#stopall').disabled = !n;
 
   if(!n){
-    list.innerHTML = '<div class="empty">还没有出口'
+    list.innerHTML = '<div class="empty">No exits yet'
       + '<div><button class="primary" id="newexit2">'
       + '<svg viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>'
-      + '新建出口</button></div></div>';
+      + 'New Exit</button></div></div>';
     return;
   }
 
   list.innerHTML = view.exits.map(e => {
-    const label = e.exit_ip || (e.status === 'starting' ? '连接中…' : '—');
+    const label = e.exit_ip || (e.status === 'starting' ? 'Connecting…' : '—');
     const chips = (e.inbounds || []).length
       ? e.inbounds.map(i => '<button class="chip" data-detail="' + i.id + '" title="'
           + esc((i.remark || i.protocol) + ' · ' + i.protocol + ' :' + i.port) + '">'
           + esc(i.protocol) + ' :' + i.port + '</button>').join('')
-      : '<span class="chip none">无节点</span>';
+      : '<span class="chip none">No nodes</span>';
     const err = e.status === 'failed' && e.err
       ? '<div class="errline" title="' + esc(e.err) + '">' + esc(e.err) + '</div>' : '';
-    // 国家码和全名一起显示是冗余的，只在两者确实不同时才补全名
+    // Show both country code and full name only when they are actually different.
     const place = e.country && e.country.toUpperCase() !== (e.region || '').toUpperCase()
       ? esc(e.region) + ' ' + esc(e.country) : esc(e.region || '—');
     return '<div class="exit">'
@@ -585,28 +585,28 @@ function renderExits(){
       +   '<span class="ip">' + esc(label) + '</span>'
       +   '<span class="meta">' + place + ' · ' + esc(e.host) + '</span>'
       +   '<span class="chips">' + chips + '</span>'
-      +   '<span class="socks"><button data-cred="' + e.slot + '" title="SOCKS5 访问凭据">'
+      +   '<span class="socks"><button data-cred="' + e.slot + '" title="SOCKS5 credentials">'
       +     ICON.lock + ':' + e.port + '</button></span>'
       +   '<span class="acts">'
-      +     '<button class="icon" data-swap="' + e.slot + '" title="换一个节点">' + ICON.redo + '</button>'
-      +     '<button class="icon" data-stop="' + e.slot + '" title="停止这个出口">' + ICON.stop + '</button>'
+      +     '<button class="icon" data-swap="' + e.slot + '" title="Switch to another node">' + ICON.redo + '</button>'
+      +     '<button class="icon" data-stop="' + e.slot + '" title="Stop this exit">' + ICON.stop + '</button>'
       +   '</span>'
       + '</div>' + err + '</div>';
   }).join('');
 }
 
-// 停掉出口后它的入站会留在面板里。这些入站现在走直连，
-// 用户既看不出它们和 fanout 的关系，也没有清理入口，所以单独列出来。
+// Inbounds remain in the panel after an exit is stopped and then route directly.
+// List them separately so the user can see and clean them up.
 function renderOrphans(){
   const box = $('#orphans');
   const list = view.direct || [];
   if(!list.length){ box.innerHTML = ''; return; }
   const hasUp = view.exits.some(e => e.status === 'up');
   box.innerHTML = '<div class="orphan"><div class="top">'
-    + '<h3>未绑定出口的入站</h3><span class="count">' + list.length + ' 个，走直连</span>'
+    + '<h3>Unbound inbounds</h3><span class="count">' + list.length + ' · direct connection</span>'
     + '<span class="spacer"></span>'
     + (isXCL() ? ''
-        : '<button data-delorphans="1" title="删除这些入站">' + ICON.trash + '清理</button>')
+        : '<button data-delorphans="1" title="Delete these inbounds">' + ICON.trash + 'Clean Up</button>')
     + '</div>'
     + list.map(i =>
         '<div class="orow">'
@@ -616,10 +616,10 @@ function renderOrphans(){
         + '<span class="spacer"></span>'
         + (hasUp
             ? '<select class="obind" data-tag="' + esc(i.tag) + '">' + exitOptions('') + '</select>'
-            : '<span class="dim">先开一个出口</span>')
+            : '<span class="dim">Start an exit first</span>')
         + (isXCL() ? ''
             : '<button class="icon danger" data-delone="' + i.id + '" data-name="'
-              + esc((i.remark || i.protocol) + ' :' + i.port) + '" title="删除这个入站">'
+              + esc((i.remark || i.protocol) + ' :' + i.port) + '" title="Delete this inbound">'
               + ICON.trash + '</button>')
         + '</div>').join('')
     + '</div>';
@@ -635,7 +635,7 @@ function renderJobs(jobs){
         + esc(s.status === 'ok' && s.detail ? s.detail : s.label) + '</span>';
     }).join('');
     const close = j.status === 'running' ? ''
-      : '<button class="icon" data-job="' + esc(j.id) + '" title="关闭">' + ICON.x + '</button>';
+      : '<button class="icon" data-job="' + esc(j.id) + '" title="Close">' + ICON.x + '</button>';
     return '<div class="job"><div class="top"><strong>' + esc(j.summary) + '</strong>'
       + '<span class="count">' + j.done + '/' + j.total + '</span>'
       + '<span class="spacer"></span>' + close + '</div>'
@@ -649,9 +649,9 @@ async function poll(){
     $('#panel').textContent = view.panel
       ? (backendName() + ': ' + view.panel)
       : (view.panel_info || '');
-    // xray-cf-lite 的节点由它自己生成，fanout 这边只管把它们导到哪条出口
+    // xray-cf-lite owns node creation; fanout only selects the exit route.
     $('#newnode').hidden = isXCL();
-    // 链接由 xray-cf-lite 的订阅体系发，fanout 这边导不出来
+    // Links are distributed through xray-cf-lite's subscription system.
     $('#exportAll').hidden = isXCL();
     renderExits();
     renderOrphans();
@@ -659,7 +659,7 @@ async function poll(){
   try{ renderJobs(await api('/api/jobs') || []); }catch(e){}
 }
 
-// ---- 新建向导 ----
+// ---- New exit wizard ----
 let regions = [], region = '', regionsLoaded = false;
 
 function openModal(id){ $('#' + id).classList.add('open'); }
@@ -682,10 +682,10 @@ function renderRegions(){
   const list = regions.filter(r => !kw
     || r.code.toLowerCase().includes(kw) || r.name.toLowerCase().includes(kw));
   $('#regions').innerHTML = ['<button class="rg' + (region === '' ? ' sel' : '')
-      + '" data-rg=""><b>不限地区</b><em>速度优先</em></button>']
+      + '" data-rg=""><b>Any region</b><em>Prioritize speed</em></button>']
     .concat(list.map(r => '<button class="rg' + (region === r.code ? ' sel' : '')
       + '" data-rg="' + esc(r.code) + '"><b>' + esc(r.code) + ' ' + esc(r.name) + '</b>'
-      + '<em>' + r.available + ' 个空闲 · ' + r.best_speed_mbps.toFixed(0) + ' Mbps</em></button>'))
+      + '<em>' + r.available + ' available · ' + r.best_speed_mbps.toFixed(0) + ' Mbps</em></button>'))
     .join('');
   updateAvail();
 }
@@ -700,9 +700,9 @@ function updateAvail(){
   const avail = availOf(region);
   const want = Number($('#count').value) || 0;
   const hint = $('#availhint');
-  hint.textContent = avail ? '可用 ' + avail + ' 个节点' : '这个地区没有空闲节点';
+  hint.textContent = avail ? avail + ' nodes available' : 'No available nodes in this region';
   hint.className = 'hint' + (want > avail ? ' bad' : '');
-  if(want > avail && avail) hint.textContent = '只剩 ' + avail + ' 个，将全部使用';
+  if(want > avail && avail) hint.textContent = 'Only ' + avail + ' remain; all will be used';
   $('#go').disabled = !avail;
 }
 
@@ -711,38 +711,37 @@ async function loadWizard(){
     regions = await api('/api/regions') || [];
     regionsLoaded = true;
     renderRegions();
-  }catch(e){ toast('读取地区失败: ' + e.message, true); }
+  }catch(e){ toast('Failed to load regions: ' + e.message, true); }
 
   const sel = $('#tpl');
-  // xray-cf-lite 模式不能复制节点，向导退化成"只开出口"，之后在节点详情里挑出口
+  // xray-cf-lite nodes cannot be cloned. The wizard only starts exits in this mode.
   if(isXCL()){
     $('#tplwrap').hidden = true;
-    sel.innerHTML = '<option value="0">只开出口，不建节点</option>';
+    sel.innerHTML = '<option value="0">Create exit only; do not create a node</option>';
     return;
   }
   $('#tplwrap').hidden = false;
   try{
-    // 已经挂在出口上的多半是上一批复制出来的，拿它当模板会套娃，
-    // 所以把没绑出口的排在前面并默认选中
+    // Prefer unbound inbounds as templates to avoid repeatedly cloning prior clones.
     const v = await api('/api/exits');
     const free = v.direct || [];
     const bound = (v.exits || []).flatMap(e => e.inbounds || []);
     inbounds = free.concat(bound);
     if(!inbounds.length){
-      sel.innerHTML = '<option value="0">还没有节点</option>';
-      $('#tplhint').textContent = '先用上面的「新建节点」建一个，之后这里可以按它批量生成';
+      sel.innerHTML = '<option value="0">No nodes yet</option>';
+      $('#tplhint').textContent = 'Create one with New Node first. It can then be used as a template here.';
       return;
     }
     const opt = i => '<option value="' + i.id + '">'
-      + esc(i.remark || ('端口 ' + i.port)) + ' · ' + esc(i.protocol)
+      + esc(i.remark || ('Port ' + i.port)) + ' · ' + esc(i.protocol)
       + ' :' + i.port + '</option>';
     sel.innerHTML =
-      (free.length ? '<optgroup label="未绑定出口">' + free.map(opt).join('') + '</optgroup>' : '')
-      + (bound.length ? '<optgroup label="已挂在出口上">' + bound.map(opt).join('') + '</optgroup>' : '')
-      + '<option value="0">只开出口，不建节点</option>';
-    $('#tplhint').textContent = '每个出口复制一份，客户端 UUID 保持一致，只有端口不同';
+      (free.length ? '<optgroup label="Unbound exits">' + free.map(opt).join('') + '</optgroup>' : '')
+      + (bound.length ? '<optgroup label="Already bound to exits">' + bound.map(opt).join('') + '</optgroup>' : '')
+      + '<option value="0">Create exit only; do not create a node</option>';
+    $('#tplhint').textContent = 'One copy is created per exit. Client UUIDs stay the same; only the ports differ.';
   }catch(e){
-    sel.innerHTML = '<option value="0">' + backendName() + '不可用</option>';
+    sel.innerHTML = '<option value="0">' + backendName() + ' unavailable</option>';
     $('#tplhint').textContent = e.message;
   }
 }
@@ -756,7 +755,7 @@ document.addEventListener('click', e => {
   if(rg){ region = rg.dataset.rg; renderRegions(); }
 });
 
-// ---- 新建节点 ----
+// ---- New node ----
 document.addEventListener('click', e => {
   if(e.target.closest('#newnode') || e.target.closest('#newnode2')){
     $('#nnhint').textContent = '';
@@ -765,13 +764,13 @@ document.addEventListener('click', e => {
   }
 });
 
-// 表单随协议/传输/安全层联动：只露出当前组合真正用得到的字段
+// Show only fields that apply to the selected protocol/transport/security combination.
 function syncNodeForm(){
   const proto = $('#nproto').value;
   const net   = $('#nnet').value;
   const sec   = $('#nsec').value;
 
-  // REALITY 靠模仿 TLS 握手工作，套在自带头部的传输上没有意义
+  // REALITY imitates a TLS handshake and is meaningful only with suitable transports.
   const realityOK = net === 'tcp' || net === 'xhttp' || net === 'grpc';
   const secSel = $('#nsec');
   for(const o of secSel.options){
@@ -785,18 +784,18 @@ function syncNodeForm(){
   $('#nkeywrap').hidden  = cur !== 'tls';
   $('#ndestwrap').hidden = cur !== 'reality';
 
-  // Vision 只在 VLESS + 裸 TCP + TLS/REALITY 下有效
+  // Vision only applies to VLESS + raw TCP + TLS/REALITY.
   const visionOK = proto === 'vless' && net === 'tcp' && cur !== 'none';
   $('#nvisionwrap').hidden = !visionOK;
   if(!visionOK) $('#nvision').checked = false;
 
   const needPath = net === 'ws' || net === 'httpupgrade' || net === 'xhttp' || net === 'grpc';
   $('#npathwrap').hidden = !needPath;
-  $('#npathlabel').textContent = net === 'grpc' ? '服务名' : '路径';
+  $('#npathlabel').textContent = net === 'grpc' ? 'Service name' : 'Path';
 
   $('#nsechint').textContent =
-    cur === 'reality' ? '密钥与 shortId 自动生成' :
-    cur === 'tls'     ? '不填证书就用自签，链接会带证书指纹' : '';
+    cur === 'reality' ? 'Keys and shortId are generated automatically' :
+    cur === 'tls'     ? 'If no certificate is provided, a self-signed one is generated and its fingerprint is included in the link' : '';
 }
 $('#nproto').onchange = syncNodeForm;
 $('#nnet').onchange = syncNodeForm;
@@ -819,7 +818,7 @@ $('#ncreate').onclick = async e => {
   e.target.disabled = true;
   try{
     const r = await api('/api/panel/inbound/new?' + q.toString(), {method:'POST'});
-    toast('已创建 ' + r.protocol + ' 节点，端口 ' + r.port);
+    toast('Created ' + r.protocol + ' node on port ' + r.port);
     closeModal('newnodebox');
     $('#nport').value = '';
     $('#nremark').value = '';
@@ -851,7 +850,7 @@ $('#go').onclick = async e => {
   e.target.disabled = false;
 };
 
-// ---- 出口操作 ----
+// ---- Exit operations ----
 document.addEventListener('click', async e => {
   const stop = e.target.closest('[data-stop]');
   if(stop){
@@ -866,7 +865,7 @@ document.addEventListener('click', async e => {
     swap.disabled = true;
     try{
       await api('/api/swap?slot=' + swap.dataset.swap, {method:'POST'});
-      toast('正在换节点');
+      toast('Switching node');
     }catch(err){ toast(err.message, true); }
     poll();
     return;
@@ -882,11 +881,11 @@ document.addEventListener('click', async e => {
   const del = e.target.closest('[data-delorphans]');
   if(del){
     const list = view.direct || [];
-    if(!confirm('删除这 ' + list.length + ' 个未绑定节点？此操作不可撤销。')) return;
+    if(!confirm('Delete these ' + list.length + ' unbound nodes? This cannot be undone.')) return;
     del.disabled = true;
     try{
       await api('/api/xui/delete?ids=' + list.map(i => i.id).join(','), {method:'POST'});
-      toast('已清理 ' + list.length + ' 个入站');
+      toast('Cleaned up ' + list.length + ' inbounds');
     }catch(err){ toast(err.message, true); }
     poll();
     return;
@@ -894,18 +893,18 @@ document.addEventListener('click', async e => {
 
   const one = e.target.closest('[data-delone]');
   if(one){
-    if(!confirm('删除入站 ' + one.dataset.name + '？此操作不可撤销。')) return;
+    if(!confirm('Delete inbound ' + one.dataset.name + '? This cannot be undone.')) return;
     one.disabled = true;
     try{
       await api('/api/xui/delete?ids=' + one.dataset.delone, {method:'POST'});
-      toast('已删除 ' + one.dataset.name);
+      toast('Deleted ' + one.dataset.name);
     }catch(err){ toast(err.message, true); }
     poll();
   }
 });
 
 $('#stopall').onclick = async e => {
-  if(!confirm('停止全部 ' + view.exits.length + ' 个出口？')) return;
+  if(!confirm('Stop all ' + view.exits.length + ' exits?')) return;
   e.target.disabled = true;
   for(const x of view.exits){
     try{ await api('/api/stop?slot=' + x.slot, {method:'POST'}); }catch(err){}
@@ -913,12 +912,12 @@ $('#stopall').onclick = async e => {
   poll();
 };
 
-// ---- 节点详情 ----
+// ---- Node details ----
 let curDetail = null;
 
-// 详情弹窗的重绘要跟轮询解耦：正在编辑时被 poll 刷掉输入会很烦
+// Keep detail redraws independent from polling so active edits are not overwritten.
 async function openDetail(id){
-  $('#dbody').innerHTML = '<div class="empty">读取中…</div>';
+  $('#dbody').innerHTML = '<div class="empty">Loading…</div>';
   curDetail = null;
   $('#ddel').disabled = true;
   openModal('detail');
@@ -929,14 +928,14 @@ async function openDetail(id){
     $('#ddel').hidden = isXCL();
     $('#ddel').disabled = isXCL();
   }catch(err){
-    $('#dbody').innerHTML = '<div class="empty">读取失败: ' + esc(err.message) + '</div>';
+    $('#dbody').innerHTML = '<div class="empty">Failed to load: ' + esc(err.message) + '</div>';
   }
 }
 
-// 出口下拉：列出所有已连通的隧道，外加"直连"。绑定按 Xray 的 inboundTag 走。
+// Exit selector: connected tunnels plus Direct. Binding uses Xray inboundTag.
 function exitOptions(currentHost){
   const up = view.exits.filter(e => e.status === 'up');
-  return '<option value=""' + (currentHost ? '' : ' selected') + '>直连（不走隧道）</option>'
+  return '<option value=""' + (currentHost ? '' : ' selected') + '>Direct (no tunnel)</option>'
     + up.map(e => '<option value="' + esc(e.host) + '"'
         + (e.host === currentHost ? ' selected' : '') + '>'
         + esc((e.exit_ip || e.host) + ' · ' + e.region) + '</option>').join('');
@@ -952,42 +951,42 @@ function renderDetail(d){
       +   '<span class="cemail">' + esc(c.email) + '</span>'
       +   '<span class="cid">' + esc(c.id) + '</span>'
       +   '<span class="spacer"></span>'
-      +   (link ? '<button class="icon" data-copy="' + esc(link) + '" title="复制链接">' + ICON.copy + '</button>' : '')
-      +   '<button class="icon" data-creset="' + esc(c.email) + '" title="换一套凭据，旧链接立即失效">' + ICON.redo + '</button>'
-      +   '<button class="icon" data-cdel="' + esc(c.email) + '" title="删除这个客户端">' + ICON.trash + '</button>'
+      +   (link ? '<button class="icon" data-copy="' + esc(link) + '" title="Copy link">' + ICON.copy + '</button>' : '')
+      +   '<button class="icon" data-creset="' + esc(c.email) + '" title="Generate new credentials; the old link stops working immediately">' + ICON.redo + '</button>'
+      +   '<button class="icon" data-cdel="' + esc(c.email) + '" title="Delete this client">' + ICON.trash + '</button>'
       + '</div>'
       + (link ? '<div class="share">' + esc(link) + '</div>' : '')
       + '</div>';
   }).join('');
 
-  $('#dtitle').textContent = (d.remark || '节点') + '　:' + d.port;
-  // xray-cf-lite 的节点归它自己管，这里只留出口选择，改端口/备注/客户端都不给
+  $('#dtitle').textContent = (d.remark || 'Node') + '  :' + d.port;
+  // xray-cf-lite owns its nodes. fanout only exposes exit routing here.
   const editable = !isXCL();
   $('#dbody').innerHTML = '<dl class="kv">'
-    + '<dt>出口</dt><dd><select id="dbind" data-tag="' + esc(d.tag) + '">'
+    + '<dt>Exit</dt><dd><select id="dbind" data-tag="' + esc(d.tag) + '">'
     +   exitOptions(owner ? owner.host : '') + '</select></dd>'
-    + '<dt>协议</dt><dd>' + esc(d.protocol) + '　' + esc(d.network || '')
-    +   (d.tls && d.tls !== 'none' ? '　' + esc(d.tls) : '') + '</dd>'
-    + '<dt>监听</dt><dd>' + esc(d.listen || '0.0.0.0') + '</dd>'
+    + '<dt>Protocol</dt><dd>' + esc(d.protocol) + '  ' + esc(d.network || '')
+    +   (d.tls && d.tls !== 'none' ? '  ' + esc(d.tls) : '') + '</dd>'
+    + '<dt>Listen</dt><dd>' + esc(d.listen || '0.0.0.0') + '</dd>'
     + '</dl>'
     + (editable ? ('<div class="editbar">'
-    +   '<label class="ef"><span>备注</span>'
+    +   '<label class="ef"><span>Remark</span>'
     +     '<input id="dremark" type="text" value="' + esc(d.remark || '') + '"></label>'
-    +   '<label class="ef"><span>端口</span>'
+    +   '<label class="ef"><span>Port</span>'
     +     '<input id="dport" type="text" inputmode="numeric" value="' + d.port + '"></label>'
     +   '<label class="chk"><input type="checkbox" id="denable"'
-    +     (d.enable === false ? '' : ' checked') + '> 启用</label>'
+    +     (d.enable === false ? '' : ' checked') + '> Enabled</label>'
     +   '<span class="spacer"></span>'
-    +   '<button class="primary" id="dsave">保存</button>'
+    +   '<button class="primary" id="dsave">Save</button>'
     + '</div>'
-    + '<div class="chead"><h3>客户端</h3><span class="count">'
-    +   (d.clients || []).length + ' 个</span><span class="spacer"></span>'
-    +   '<button id="dcadd">' + ICON.plus + '添加</button></div>'
-    + (clients || '<div class="empty">没有客户端</div>'))
-    : '<div class="hint">这个节点由 xray-cf-lite 管，端口、UUID 和分享链接都去它那边改。这里只决定它走哪条出口。</div>');
+    + '<div class="chead"><h3>Clients</h3><span class="count">'
+    +   (d.clients || []).length + '</span><span class="spacer"></span>'
+    +   '<button id="dcadd">' + ICON.plus + 'Add</button></div>'
+    + (clients || '<div class="empty">No clients</div>'))
+    : '<div class="hint">This node is managed by xray-cf-lite. Change its port, UUID, and shared links there. fanout only selects which exit it uses.</div>');
 }
 
-// 未绑定区的出口下拉，选中即绑
+// Bind an unbound inbound as soon as an exit is selected.
 document.addEventListener('change', async e => {
   const sel = e.target.closest('.obind');
   if(!sel || !sel.value) return;
@@ -995,12 +994,12 @@ document.addEventListener('change', async e => {
   try{
     await api('/api/xui/bind?tag=' + encodeURIComponent(sel.dataset.tag)
       + '&host=' + encodeURIComponent(sel.value), {method:'POST'});
-    toast('已绑定');
+    toast('Bound');
     poll();
   }catch(err){ toast(err.message, true); sel.disabled = false; }
 });
 
-// 出口下拉改动即生效。绑定按 inboundTag 走，host 传空表示解绑回直连。
+// Detail exit changes take effect immediately. Empty host means direct routing.
 document.addEventListener('change', async e => {
   const sel = e.target.closest('#dbind');
   if(!sel) return;
@@ -1008,7 +1007,7 @@ document.addEventListener('change', async e => {
   try{
     await api('/api/xui/bind?tag=' + encodeURIComponent(sel.dataset.tag)
       + '&host=' + encodeURIComponent(sel.value), {method:'POST'});
-    toast(sel.value ? '已绑定' : '已解绑');
+    toast(sel.value ? 'Bound' : 'Unbound');
     poll();
   }catch(err){ toast(err.message, true); }
   sel.disabled = false;
@@ -1029,7 +1028,7 @@ document.addEventListener('click', async e => {
     });
     try{
       await api('/api/panel/inbound/update?' + q, {method:'POST'});
-      toast('已保存');
+      toast('Saved');
       await openDetail(curDetail.id);
       poll();
     }catch(err){ toast(err.message, true); btn.disabled = false; }
@@ -1041,7 +1040,7 @@ document.addEventListener('click', async e => {
     add.disabled = true;
     try{
       await api('/api/panel/client/add?id=' + curDetail.id, {method:'POST'});
-      toast('已添加客户端');
+      toast('Client added');
       await openDetail(curDetail.id);
     }catch(err){ toast(err.message, true); add.disabled = false; }
     return;
@@ -1049,12 +1048,12 @@ document.addEventListener('click', async e => {
 
   const del = e.target.closest('[data-cdel]');
   if(del){
-    if(!confirm('删除客户端 ' + del.dataset.cdel + '？它的链接会立即失效。')) return;
+    if(!confirm('Delete client ' + del.dataset.cdel + '? Its link will stop working immediately.')) return;
     del.disabled = true;
     try{
       await api('/api/panel/client/del?id=' + curDetail.id
         + '&email=' + encodeURIComponent(del.dataset.cdel), {method:'POST'});
-      toast('已删除');
+      toast('Deleted');
       await openDetail(curDetail.id);
     }catch(err){ toast(err.message, true); del.disabled = false; }
     return;
@@ -1062,26 +1061,26 @@ document.addEventListener('click', async e => {
 
   const reset = e.target.closest('[data-creset]');
   if(reset){
-    if(!confirm('重置 ' + reset.dataset.creset + ' 的凭据？已分发的旧链接会立即失效。')) return;
+    if(!confirm('Reset credentials for ' + reset.dataset.creset + '? Previously distributed links will stop working immediately.')) return;
     reset.disabled = true;
     try{
       await api('/api/panel/client/reset?id=' + curDetail.id
         + '&email=' + encodeURIComponent(reset.dataset.creset), {method:'POST'});
-      toast('已重置');
+      toast('Reset');
       await openDetail(curDetail.id);
     }catch(err){ toast(err.message, true); reset.disabled = false; }
     return;
   }
 
-  // 详情弹窗里删掉当前这个入站
+  // Delete the current inbound from the detail dialog.
   const dd = e.target.closest('#ddel');
   if(dd && curDetail){
-    const name = (curDetail.remark || curDetail.protocol || '节点') + ' :' + curDetail.port;
-    if(!confirm('删除入站 ' + name + '？它的所有客户端链接都会失效，且不可撤销。')) return;
+    const name = (curDetail.remark || curDetail.protocol || 'Node') + ' :' + curDetail.port;
+    if(!confirm('Delete inbound ' + name + '? All client links will stop working and this cannot be undone.')) return;
     dd.disabled = true;
     try{
       await api('/api/xui/delete?ids=' + curDetail.id, {method:'POST'});
-      toast('已删除 ' + name);
+      toast('Deleted ' + name);
       curDetail = null;
       closeModal('detail');
       poll();
@@ -1094,7 +1093,7 @@ document.addEventListener('click', e => {
   if(c) copy(c.dataset.copy);
 });
 
-// ---- SOCKS5 凭据 ----
+// ---- SOCKS5 credentials ----
 let curCred = null;
 
 function socksURL(host, port, user, pass){
@@ -1102,16 +1101,15 @@ function socksURL(host, port, user, pass){
   return 'socks5://' + user + ':' + pass + '@' + host + ':' + port;
 }
 
-// SOCKS5 端口监听在母机（跑 fanout 的这台服务器）上，客户端要连的是母机的
-// 公网 IPv4，流量再从出口 IP 出去。出口 IP 是"出去以后"的地址，不能当连接地址。
-// public_ip 是后端探测到的母机公网地址；探测不到才退回访问面板用的主机名。
+// SOCKS5 listens on the host running fanout. Clients connect to that host's
+// public IPv4, while traffic exits through the tunnel's exit IP.
 function credHost(e){
   return view.public_ip || location.hostname || e.host;
 }
 
 function openCred(slot){
   const e = view.exits.find(x => x.slot === slot);
-  if(!e){ toast('这个出口不在了', true); return; }
+  if(!e){ toast('This exit no longer exists', true); return; }
   curCred = {slot: slot, port: e.port, host: credHost(e)};
   $('#crtitle').textContent = e.region + ' · :' + e.port;
   $('#cruser').value = e.socks_user || '';
@@ -1129,7 +1127,7 @@ $('#cruser').oninput = refreshCredURL;
 $('#crpass').oninput = refreshCredURL;
 
 $('#crrand').onclick = () => {
-  // 客户端和服务端都要能识别，只用无歧义、无需转义的字符
+  // Use unambiguous characters that require no escaping on either side.
   const abc = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const gen = n => Array.from(crypto.getRandomValues(new Uint8Array(n)))
     .map(v => abc[v % abc.length]).join('');
@@ -1153,49 +1151,49 @@ $('#crsave').onclick = async e => {
     $('#cruser').value = r.user;
     $('#crpass').value = r.pass;
     refreshCredURL();
-    toast('已保存，立即生效');
+    toast('Saved and active immediately');
     poll();
   }catch(err){ toast(err.message, true); }
   btn.disabled = false;
 };
 
-// ---- 导出 ----
+// ---- Export ----
 $('#exportAll').onclick = async () => {
   const ids = view.exits.flatMap(x => (x.inbounds || []).map(i => i.id));
-  if(!ids.length){ toast('还没有节点可导出', true); return; }
-  $('#exbox').value = '读取中…';
+  if(!ids.length){ toast('There are no nodes to export yet', true); return; }
+  $('#exbox').value = 'Loading…';
   $('#excount').textContent = '';
   openModal('export');
   try{
     const d = await api('/api/xui/links?ids=' + ids.join(','));
     $('#exbox').value = (d.links || []).join('\n');
-    $('#excount').textContent = (d.links || []).length + ' 条';
-  }catch(err){ $('#exbox').value = '导出失败: ' + err.message; }
+    $('#excount').textContent = (d.links || []).length + ' links';
+  }catch(err){ $('#exbox').value = 'Export failed: ' + err.message; }
 };
 $('#copyall').onclick = () => { const v = $('#exbox').value; if(v) copy(v); };
 
-// ---- 设置：改密码 / 改路径 / 改端口 / 改本地监听 ----
+// ---- Settings: password / path / port / local listen address ----
 let curSettings = null;
 let curBackend = null;
 
-// 后端切换：把本机能用的模式列出来，装了的可选，没装的置灰并说明原因
+// Backend switching: installed modes are selectable; unavailable ones are disabled.
 async function loadBackendModes(){
   const sel = $('#setBackend');
   const hint = $('#setBackendHint');
   try{
     const m = await api('/api/panel/mode');
     curBackend = m.mode || '';
-    sel.innerHTML = '<option value="">自动（按本机装了什么挑）</option>'
+    sel.innerHTML = '<option value="">Automatic (based on what is installed)</option>'
       + (m.modes || []).map(x =>
           '<option value="' + esc(x.mode) + '"' + (x.available ? '' : ' disabled')
-          + '>' + esc(x.label) + (x.available ? '' : '（没装）') + '</option>').join('');
+          + '>' + esc(x.label) + (x.available ? '' : ' (not installed)') + '</option>').join('');
     sel.value = curBackend;
     const bad = (m.modes || []).filter(x => !x.available);
     hint.textContent = m.describe
-      ? ('当前：' + m.describe + (bad.length ? '。灰掉的是本机没装的。' : ''))
-      : '节点从哪来。装了 3x-ui 或 xray-cf-lite 就能直接接管，都没有就用自建。';
+      ? ('Current: ' + m.describe + (bad.length ? '. Disabled options are not installed on this machine.' : ''))
+      : 'Choose where nodes come from. fanout can take over 3x-ui or xray-cf-lite when installed, otherwise it uses its built-in Xray.';
   }catch(err){
-    sel.innerHTML = '<option value="">读取失败</option>';
+    sel.innerHTML = '<option value="">Failed to load</option>';
     hint.textContent = err.message;
   }
 }
@@ -1203,7 +1201,7 @@ async function loadBackendModes(){
 $('#settingsBtn').onclick = async () => {
   $('#setPw').value = '';
   $('#setPath').value = '';
-  $('#setPathHint').textContent = '读取中…';
+  $('#setPathHint').textContent = 'Loading…';
   openModal('settings');
   loadBackendModes();
   try{
@@ -1212,65 +1210,64 @@ $('#settingsBtn').onclick = async () => {
     $('#setPath').value = (s.base_path || '').replace(/^\//, '');
     $('#setPort').value = s.port || '';
     $('#setListen').value = s.listen_addr || '0.0.0.0';
-    $('#setPathHint').textContent = '界面挂在这个路径下，扫端口的探不到。只能用字母数字和 - _。';
+    $('#setPathHint').textContent = 'The UI is mounted under this path to hide it from simple port scans. Only letters, numbers, - and _ are allowed.';
     $('#updCur').textContent = s.version || '-';
     $('#updLatest').textContent = '';
     $('#updNotes').hidden = true;
     $('#updApply').hidden = true;
     $('#updCheck').disabled = false;
-    $('#updCheck').textContent = '检查更新';
-  }catch(err){ $('#setPathHint').textContent = '读取失败: ' + err.message; }
+    $('#updCheck').textContent = 'Check for Updates';
+  }catch(err){ $('#setPathHint').textContent = 'Failed to load: ' + err.message; }
 };
 
-// 检查更新：问后端 GitHub 最新版，有新版就亮出更新按钮和更新内容
+// Ask the backend for the latest GitHub release and show update details when available.
 $('#updCheck').onclick = async e => {
   e.target.disabled = true;
-  e.target.textContent = '检查中…';
+  e.target.textContent = 'Checking…';
   try{
     const u = await api('/api/update/check');
     $('#updCur').textContent = u.current || '-';
     if(u.has_update){
-      $('#updLatest').textContent = '有新版本 ' + u.latest;
+      $('#updLatest').textContent = 'New version ' + u.latest;
       $('#updApplyVer').textContent = u.latest;
       $('#updApply').hidden = false;
-      $('#updNotes').textContent = u.notes || '（这个版本没写更新说明）';
+      $('#updNotes').textContent = u.notes || '(No release notes were provided for this version.)';
       $('#updNotes').hidden = false;
     } else {
-      $('#updLatest').textContent = '已是最新';
+      $('#updLatest').textContent = 'Up to date';
       $('#updApply').hidden = true;
       $('#updNotes').hidden = true;
     }
   }catch(err){ toast(err.message, true); }
   e.target.disabled = false;
-  e.target.textContent = '检查更新';
+  e.target.textContent = 'Check for Updates';
 };
 
-// 一键更新：后端下载替换二进制并重启服务，进程重启期间界面会短暂断连
+// One-click update downloads the new binary and restarts the service.
 $('#updApply').onclick = async e => {
-  if(!confirm('更新到 ' + $('#updApplyVer').textContent + '？服务会重启，界面会短暂断开。')) return;
+  if(!confirm('Update to ' + $('#updApplyVer').textContent + '? The service will restart and the UI will disconnect briefly.')) return;
   e.target.disabled = true;
-  e.target.textContent = '更新中…';
+  e.target.textContent = 'Updating…';
   try{
     const r = await api('/api/update/apply', {method:'POST'});
     if(r.restarting){
-      $('#updNotes').textContent = '已下载新版本，服务正在重启，几秒后刷新页面即可。';
+      $('#updNotes').textContent = 'The new version has been downloaded and the service is restarting. Refresh the page in a few seconds.';
       $('#updNotes').hidden = false;
-      toast('更新中，服务重启后刷新页面');
-      // 给服务重启留点时间再自动刷新
+      toast('Updating. Refresh after the service restarts.');
       setTimeout(() => location.reload(), 6000);
     } else {
-      toast(r.message || '已是最新版');
+      toast(r.message || 'Already up to date');
       e.target.disabled = false;
-      e.target.textContent = '更新到 ' + $('#updApplyVer').textContent;
+      e.target.textContent = 'Update to ' + $('#updApplyVer').textContent;
     }
   }catch(err){
     toast(err.message, true);
     e.target.disabled = false;
-    e.target.textContent = '更新到 ' + $('#updApplyVer').textContent;
+    e.target.textContent = 'Update to ' + $('#updApplyVer').textContent;
   }
 };
 
-// 端口/监听地址变了要提示用户之后从新地址进；密码/路径可原地生效
+// If the port/listen address changes, show the new URL. Password/path can apply in place.
 function nextURL(port, listen, path){
   const host = (listen && listen !== '0.0.0.0') ? listen : location.hostname;
   return location.protocol + '//' + host + ':' + port + (path ? '/' + path : '') + '/';
@@ -1290,7 +1287,8 @@ $('#setSave').onclick = async e => {
     || body.listen_addr !== (curSettings.listen_addr || '0.0.0.0'));
 
   try{
-    // 后端和其它设置分属两个接口，先切后端：切失败就别继续，免得用户以为整单都生效了
+    // Backend and general settings use separate APIs. Switch backend first so
+    // a backend failure does not leave the user thinking everything succeeded.
     const backend = $('#setBackend').value;
     if(curBackend !== null && backend !== curBackend){
       const r = await api('/api/panel/mode', {
@@ -1299,7 +1297,7 @@ $('#setSave').onclick = async e => {
         body: JSON.stringify({mode: backend}),
       });
       curBackend = r.mode || '';
-      $('#setBackendHint').textContent = '当前：' + (r.describe || r.kind || '已切换');
+      $('#setBackendHint').textContent = 'Current: ' + (r.describe || r.kind || 'switched');
     }
     await api('/api/settings', {
       method:'POST',
@@ -1308,12 +1306,11 @@ $('#setSave').onclick = async e => {
     });
     if(portChanged){
       const url = nextURL(port, body.listen_addr, body.base_path);
-      $('#setPortHint').innerHTML = '监听已切换，请从新地址打开：<a href="' + esc(url) + '">' + esc(url) + '</a>';
-      toast('监听已切换，用新地址重新打开');
-      // 端口变了当前连接会断，不自动跳转，让用户看清新地址
+      $('#setPortHint').innerHTML = 'Listener changed. Open the new address: <a href="' + esc(url) + '">' + esc(url) + '</a>';
+      toast('Listener changed. Reopen using the new address.');
     } else {
-      toast('已保存');
-      // 路径可能变了，重新加载到新路径下
+      toast('Saved');
+      // The path may have changed, so reload under the new prefix.
       const np = body.base_path;
       const cur = (curSettings && curSettings.base_path || '').replace(/^\//, '');
       if(np !== cur){
