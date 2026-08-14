@@ -13,23 +13,23 @@ func newTestAuth() *Auth {
 	}
 }
 
-// 连续失败达到阈值后，该 IP 应被冷却挡下。
+// An IP should be placed in cooldown after reaching the consecutive-failure threshold.
 func TestLoginThrottleBlocksAfterMaxFails(t *testing.T) {
 	a := newTestAuth()
 	const ip = "203.0.113.7"
 
 	for i := 0; i < loginMaxFails; i++ {
 		if a.blocked(ip) {
-			t.Fatalf("第 %d 次失败前不该被封", i)
+			t.Fatalf("IP should not be blocked before failure %d", i)
 		}
 		a.recordFail(ip)
 	}
 	if !a.blocked(ip) {
-		t.Fatalf("连续 %d 次失败后应进入冷却", loginMaxFails)
+		t.Fatalf("IP should enter cooldown after %d consecutive failures", loginMaxFails)
 	}
 }
 
-// 登录成功要清零，之前的失败不该累积到下一轮。
+// A successful login should clear previous failures before the next attempt cycle.
 func TestLoginThrottleClearOnSuccess(t *testing.T) {
 	a := newTestAuth()
 	const ip = "203.0.113.8"
@@ -39,27 +39,27 @@ func TestLoginThrottleClearOnSuccess(t *testing.T) {
 	}
 	a.clearFails(ip)
 	if a.blocked(ip) {
-		t.Fatal("清零后不该被封")
+		t.Fatal("IP should not be blocked after failures are cleared")
 	}
-	// 清零后再错一次也不该立刻触发冷却
+	// One new failure after clearing should not immediately trigger cooldown.
 	a.recordFail(ip)
 	if a.blocked(ip) {
-		t.Fatal("清零后单次失败不该被封")
+		t.Fatal("a single failure after clearing should not block the IP")
 	}
 }
 
-// 不同 IP 的失败互不牵连。
+// Failure counters must be isolated by source IP.
 func TestLoginThrottleIsolatesIPs(t *testing.T) {
 	a := newTestAuth()
 	for i := 0; i < loginMaxFails; i++ {
 		a.recordFail("198.51.100.1")
 	}
 	if a.blocked("198.51.100.2") {
-		t.Fatal("一个 IP 被封不该波及另一个 IP")
+		t.Fatal("blocking one IP must not affect another IP")
 	}
 }
 
-// 冷却到期后应自动解封。
+// An IP should be unblocked automatically after cooldown expires.
 func TestLoginThrottleUnblocksAfterExpiry(t *testing.T) {
 	a := newTestAuth()
 	const ip = "203.0.113.9"
@@ -67,13 +67,13 @@ func TestLoginThrottleUnblocksAfterExpiry(t *testing.T) {
 		a.recordFail(ip)
 	}
 	if !a.blocked(ip) {
-		t.Fatal("应先进入冷却")
+		t.Fatal("IP should enter cooldown first")
 	}
-	// 手动把封禁时间拨到过去，模拟冷却结束
+	// Move the block expiry into the past to simulate cooldown completion.
 	a.mu.Lock()
 	a.fails[ip].blocked = time.Now().Add(-time.Second)
 	a.mu.Unlock()
 	if a.blocked(ip) {
-		t.Fatal("冷却到期后应解封")
+		t.Fatal("IP should be unblocked after cooldown expires")
 	}
 }
