@@ -6,17 +6,19 @@ import (
 	"strings"
 )
 
-// credAlphabet 避开容易看错的字符，也避开在 socks5:// URL 里需要转义的符号。
+// credAlphabet avoids easily confused characters and symbols that require
+// escaping in socks5:// URLs.
 const credAlphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
-// 用户名口令的长度限制。RFC1929 的长度字段是单字节，上限 255。
+// Username/password length limits. RFC1929 uses a one-byte length field, so
+// the protocol maximum is 255 bytes.
 const (
 	credUserLen = 6
 	credPassLen = 14
 	credMaxLen  = 255
 )
 
-// newSocksCred 生成一套随机凭据。
+// newSocksCred generates random SOCKS5 credentials.
 func newSocksCred() (SocksCred, error) {
 	user, err := randomCredString(credUserLen)
 	if err != nil {
@@ -41,29 +43,29 @@ func randomCredString(n int) (string, error) {
 	return string(out), nil
 }
 
-// validateCred 校验用户填的凭据。
+// validateCred validates user-provided credentials.
 //
-// 不允许空格与冒号：SOCKS5 协议本身不在乎，但 socks5://user:pass@host:port
-// 这种写法会被它们拆坏，而客户端基本都用这个格式。
+// Spaces and URL delimiters are rejected. SOCKS5 itself permits them, but they
+// break the socks5://user:pass@host:port format used by most clients.
 func validateCred(c SocksCred) error {
 	if c.User == "" || c.Pass == "" {
-		return fmt.Errorf("用户名和口令都不能为空")
+		return fmt.Errorf("username and password cannot be empty")
 	}
 	if len(c.User) > credMaxLen || len(c.Pass) > credMaxLen {
-		return fmt.Errorf("用户名和口令都不能超过 %d 个字节", credMaxLen)
+		return fmt.Errorf("username and password cannot exceed %d bytes", credMaxLen)
 	}
 	for _, field := range []string{c.User, c.Pass} {
 		if strings.ContainsAny(field, ": /@\t\r\n") {
-			return fmt.Errorf("用户名和口令不能包含空格、冒号、斜杠或 @")
+			return fmt.Errorf("username and password cannot contain spaces, colons, slashes, or @")
 		}
 	}
 	return nil
 }
 
-// socksServerJSON 生成 Xray socks 出站里的 server 条目。
+// socksServerJSON creates the server entry for an Xray SOCKS outbound.
 //
-// 两种后端共用：本机 Xray 连的是 fanout 自己的 SOCKS5 端口，
-// 端口既然要认证，出站配置就必须带上同一套凭据。
+// Both backends use it: local Xray connects to fanout's own SOCKS5 port, so an
+// authenticated port must include the same credentials in the outbound config.
 func socksServerJSON(t *Tunnel) map[string]any {
 	cred := t.credential()
 	server := map[string]any{
@@ -79,7 +81,7 @@ func socksServerJSON(t *Tunnel) map[string]any {
 	return server
 }
 
-// socksURL 拼出客户端能直接粘贴的 socks5:// 地址。
+// socksURL builds a socks5:// URL that clients can paste directly.
 func socksURL(host string, port int, cred SocksCred) string {
 	if cred.User == "" {
 		return fmt.Sprintf("socks5://%s:%d", host, port)
