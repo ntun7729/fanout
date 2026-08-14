@@ -19,9 +19,9 @@ import (
 	"time"
 )
 
-const updateRepo = "byJoey/fanout"
+const updateRepo = "ntun7729/fanout"
 
-// releaseInfo 是 GitHub Releases API 里我们关心的字段。
+// releaseInfo contains the GitHub Releases API fields used by the updater.
 type releaseInfo struct {
 	TagName string `json:"tag_name"`
 	Name    string `json:"name"`
@@ -33,7 +33,8 @@ type releaseInfo struct {
 	} `json:"assets"`
 }
 
-// UpdateStatus 回给界面：当前版本、最新版本、有没有新版、更新内容。
+// UpdateStatus is returned to the UI with the current version, latest version,
+// update availability, and release notes.
 type UpdateStatus struct {
 	Current   string `json:"current"`
 	Latest    string `json:"latest"`
@@ -42,7 +43,7 @@ type UpdateStatus struct {
 	URL       string `json:"url"`
 }
 
-// goarch 把 runtime.GOARCH 映射成 release 资产用的名字。
+// assetArch maps runtime.GOARCH to the name used in release assets.
 func assetArch() string {
 	switch runtime.GOARCH {
 	case "amd64":
@@ -54,7 +55,7 @@ func assetArch() string {
 	}
 }
 
-// fetchLatestRelease 拉取最新 release 元数据。
+// fetchLatestRelease fetches metadata for the latest release.
 func fetchLatestRelease() (*releaseInfo, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", updateRepo)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -71,7 +72,7 @@ func fetchLatestRelease() (*releaseInfo, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub 返回 HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("GitHub returned HTTP %d", resp.StatusCode)
 	}
 	var rel releaseInfo
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
@@ -80,7 +81,7 @@ func fetchLatestRelease() (*releaseInfo, error) {
 	return &rel, nil
 }
 
-// checkUpdate 比对当前版本与最新 release。
+// checkUpdate compares the current version with the latest release.
 func checkUpdate() (*UpdateStatus, error) {
 	rel, err := fetchLatestRelease()
 	if err != nil {
@@ -98,8 +99,9 @@ func checkUpdate() (*UpdateStatus, error) {
 	return st, nil
 }
 
-// versionLess 判断 cur 是否比 latest 旧。解析 vX.Y.Z 做数值比较；
-// dev 或无法解析时保守认为"有更新"（让用户能装上正式版）。
+// versionLess reports whether cur is older than latest. vX.Y.Z versions are
+// compared numerically. dev or unparseable versions conservatively report an
+// available update so users can install a formal release.
 func versionLess(cur, latest string) bool {
 	if latest == "" {
 		return false
@@ -123,7 +125,7 @@ func versionLess(cur, latest string) bool {
 func parseSemver(v string) ([3]int, bool) {
 	var out [3]int
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	// 去掉预发布/构建后缀
+	// Remove prerelease/build suffixes.
 	if i := strings.IndexAny(v, "-+"); i >= 0 {
 		v = v[:i]
 	}
@@ -141,8 +143,9 @@ func parseSemver(v string) ([3]int, bool) {
 	return out, true
 }
 
-// applyUpdate 下载最新版对应架构的包、校验、替换当前二进制，然后重启服务。
-// 成功后本进程会被 init 系统拉起成新版本，所以正常情况下这里返回后进程即被替换。
+// applyUpdate downloads the latest package for this architecture, verifies it,
+// replaces the current binary, and restarts the service. On success the init
+// system starts the newly installed version.
 func applyUpdate() error {
 	rel, err := fetchLatestRelease()
 	if err != nil {
@@ -161,7 +164,7 @@ func applyUpdate() error {
 		}
 	}
 	if assetURL == "" {
-		return fmt.Errorf("最新版里找不到适配 %s 的包", arch)
+		return fmt.Errorf("latest release has no package for %s", arch)
 	}
 
 	tmp, err := os.MkdirTemp("", "fanout-update-")
@@ -172,10 +175,10 @@ func applyUpdate() error {
 
 	tarPath := filepath.Join(tmp, assetName)
 	if err := downloadFile(assetURL, tarPath); err != nil {
-		return fmt.Errorf("下载失败: %w", err)
+		return fmt.Errorf("download failed: %w", err)
 	}
 
-	// 有校验和就核对，防止下到损坏或被篡改的包
+	// Verify a checksum when available to detect corrupted or tampered packages.
 	if sumsURL != "" {
 		if err := verifyChecksum(tarPath, assetName, sumsURL); err != nil {
 			return err
@@ -184,27 +187,26 @@ func applyUpdate() error {
 
 	newBin := filepath.Join(tmp, "fanout")
 	if err := extractBinary(tarPath, "fanout", newBin); err != nil {
-		return fmt.Errorf("解包失败: %w", err)
+		return fmt.Errorf("failed to extract package: %w", err)
 	}
 
 	self, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("定位当前程序失败: %w", err)
+		return fmt.Errorf("failed to locate current executable: %w", err)
 	}
 	self, _ = filepath.EvalSymlinks(self)
 
-	// 原子替换：先写到同目录临时文件再 rename，避免替一半崩了留下坏二进制
+	// Atomic replacement: stage the binary in the same directory, then rename it.
 	staged := self + ".new"
 	if err := copyFileMode(newBin, staged, 0755); err != nil {
-		return fmt.Errorf("写入新版本失败: %w", err)
+		return fmt.Errorf("failed to write new version: %w", err)
 	}
 	if err := os.Rename(staged, self); err != nil {
 		os.Remove(staged)
-		return fmt.Errorf("替换二进制失败: %w", err)
+		return fmt.Errorf("failed to replace executable: %w", err)
 	}
 
-	// 让 init 系统重启我们，拉起新版本。异步触发并延迟一下，
-	// 好让这次请求的响应先发回界面。
+	// Restart asynchronously after the response has had time to reach the UI.
 	go func() {
 		time.Sleep(800 * time.Millisecond)
 		restartSelf()
@@ -240,7 +242,7 @@ func downloadFile(url, dst string) error {
 func verifyChecksum(path, name, sumsURL string) error {
 	sums := filepath.Join(filepath.Dir(path), "checksums.txt")
 	if err := downloadFile(sumsURL, sums); err != nil {
-		return fmt.Errorf("下载校验和失败: %w", err)
+		return fmt.Errorf("failed to download checksums: %w", err)
 	}
 	want, err := sha256FromList(sums, name)
 	if err != nil {
@@ -251,7 +253,7 @@ func verifyChecksum(path, name, sumsURL string) error {
 		return err
 	}
 	if !strings.EqualFold(want, got) {
-		return fmt.Errorf("校验和不匹配，包可能损坏")
+		return fmt.Errorf("checksum mismatch; package may be corrupted")
 	}
 	return nil
 }
@@ -267,7 +269,7 @@ func sha256FromList(listPath, name string) (string, error) {
 			return fields[0], nil
 		}
 	}
-	return "", fmt.Errorf("校验和列表里没有 %s", name)
+	return "", fmt.Errorf("checksum list does not contain %s", name)
 }
 
 func sha256File(path string) (string, error) {
@@ -283,7 +285,7 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// extractBinary 从 tar.gz 里取出指定文件名的成员写到 dst。
+// extractBinary extracts the named member from a tar.gz archive into dst.
 func extractBinary(tarGz, member, dst string) error {
 	f, err := os.Open(tarGz)
 	if err != nil {
@@ -299,7 +301,7 @@ func extractBinary(tarGz, member, dst string) error {
 	for {
 		hd, err := tr.Next()
 		if err == io.EOF {
-			return fmt.Errorf("包里没有 %s", member)
+			return fmt.Errorf("package does not contain %s", member)
 		}
 		if err != nil {
 			return err
@@ -336,8 +338,9 @@ func copyFileMode(src, dst string, mode os.FileMode) error {
 	return out.Close()
 }
 
-// restartSelf 通过 init 系统重启 fanout 服务，拉起刚替换的新二进制。
-// systemd / openrc 各一套；都不可用时退回直接自我 exec。
+// restartSelf restarts the fanout service through the active init system. It
+// supports systemd and OpenRC; without either, the binary is replaced but the
+// user must restart the service manually.
 func restartSelf() {
 	if hasCmd("systemctl") && dirExists("/run/systemd/system") {
 		_ = exec.Command("systemctl", "restart", "fanout").Start()
@@ -347,9 +350,7 @@ func restartSelf() {
 		_ = exec.Command("rc-service", "fanout", "restart").Start()
 		return
 	}
-	// 没有 init 系统托管：直接退出，让外部守护（若有）拉起；
-	// 没有守护就只能等下次手动启动。日志留个痕。
-	fmt.Println("fanout: 已替换二进制，但未检测到 systemd/openrc，请手动重启服务")
+	fmt.Println("fanout: binary replaced, but systemd/OpenRC was not detected; restart the service manually")
 }
 
 func hasCmd(name string) bool {
