@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +21,8 @@ type SocksCred struct {
 	Pass string `json:"pass"`
 }
 
-// Tunnel is one running tunnel: a network namespace, an OpenVPN process, and a local SOCKS5 port.
+// Tunnel is one running exit: either an OpenVPN network namespace or an upstream
+// public proxy, plus a local authenticated SOCKS5 port.
 type Tunnel struct {
 	Slot   int       `json:"slot"`
 	Port   int       `json:"port"`
@@ -54,7 +56,13 @@ func runQuiet(name string, args ...string) {
 }
 
 // setupNetns creates the network namespace and veth link, then configures NAT and forwarding.
+// Proxy exits do not need a namespace because their outbound path is selected per TCP connection.
 func (t *Tunnel) setupNetns() error {
+	if isProxyNode(t.Node) {
+		t.teardownNetns()
+		return nil
+	}
+
 	ns, sub := t.nsName(), t.subnet()
 	veth, peer := fmt.Sprintf("fov%d", t.Slot), fmt.Sprintf("fop%d", t.Slot)
 
@@ -136,7 +144,12 @@ func (t *Tunnel) teardownNetns() {
 }
 
 // startOpenVPN starts OpenVPN inside the namespace and waits for tun0 to receive an address.
+// Proxy exits have no OpenVPN process; their live check happens in probeExitIP.
 func (t *Tunnel) startOpenVPN(dir string) error {
+	if isProxyNode(t.Node) {
+		return nil
+	}
+
 	ns := t.nsName()
 	cfgPath := filepath.Join(dir, ns+".ovpn")
 	if err := os.WriteFile(cfgPath, []byte(t.Node.Config), 0600); err != nil {
@@ -181,9 +194,9 @@ func (t *Tunnel) startOpenVPN(dir string) error {
 	return fmt.Errorf("timed out waiting for tun0; see %s", logPath)
 }
 
-// serve listens for SOCKS5 on the host while creating outbound connections
-// inside the namespace. The listener must remain on the host because namespace
-// loopback is isolated and would not be reachable externally.
+// serve listens for SOCKS5 on the host. Each connection resolves its outbound
+// dialer at accept time so automatic swaps can switch between proxy endpoints
+// without rebinding the public SOCKS5 listener.
 func (t *Tunnel) serve() error {
 	// Keep the assigned port whenever possible so distributed client configuration remains valid.
 	var ln net.Listener
@@ -208,7 +221,6 @@ func (t *Tunnel) serve() error {
 		t.Port = port
 	}
 	t.listener = ln
-	dial := dialerInNetns(t.nsName())
 
 	go func() {
 		for {
@@ -218,10 +230,23 @@ func (t *Tunnel) serve() error {
 			}
 			// Read credentials per connection so changes apply immediately without rebinding the listener.
 			cred := t.credential()
-			go serveSocks(conn, &cred, dial)
+			go serveSocks(conn, &cred, t.dialOutbound)
 		}
 	}()
 	return nil
+}
+
+// dialOutbound selects either the current upstream public proxy or the tunnel's
+// network namespace. Reading t.Node per connection makes proxy swaps immediate.
+func (t *Tunnel) dialOutbound(network, addr string) (net.Conn, error) {
+	if isProxyNode(t.Node) {
+		dial, err := upstreamProxyDialer(proxyURLFromNode(t.Node), 20*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		return dial(network, addr)
+	}
+	return dialerInNetns(t.nsName())(network, addr)
 }
 
 // credential returns a credentials copy while avoiding concurrent reads/writes.
@@ -239,10 +264,26 @@ func (t *Tunnel) setCredential(c SocksCred) {
 	t.Cred = c
 }
 
-// probeExitIP queries the exit IP through the tunnel to verify that the VPN is active.
+// probeExitIP queries the actual public IP through the selected exit transport.
 func (t *Tunnel) probeExitIP() (string, error) {
+	return t.probeExitIPWithTimeout(15 * time.Second)
+}
+
+func (t *Tunnel) probeExitIPWithTimeout(timeout time.Duration) (string, error) {
+	if isProxyNode(t.Node) {
+		ip, err := probeProxyExit(proxyURLFromNode(t.Node), timeout)
+		if err != nil {
+			return "", fmt.Errorf("failed to query proxy exit IP: %w", err)
+		}
+		return ip, nil
+	}
+
+	seconds := int(timeout.Seconds())
+	if seconds < 1 {
+		seconds = 1
+	}
 	out, err := exec.Command("ip", "netns", "exec", t.nsName(),
-		"curl", "-s", "--max-time", "15", "http://api.ipify.org").Output()
+		"curl", "-s", "--max-time", strconv.Itoa(seconds), "http://api.ipify.org").Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to query exit IP: %w", err)
 	}
