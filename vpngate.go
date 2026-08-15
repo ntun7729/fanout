@@ -38,7 +38,8 @@ func mirrorAccessKey() string {
 	return mirrorKey
 }
 
-// Node represents a VPN Gate node.
+// Node represents an available exit source. VPN Gate nodes contain an OpenVPN
+// configuration. Free-proxy nodes store a proxy:<url> marker in Config.
 type Node struct {
 	HostName    string  `json:"hostname"`
 	IP          string  `json:"ip"`
@@ -47,14 +48,28 @@ type Node struct {
 	Ping        int     `json:"ping"`
 	SpeedMbps   float64 `json:"speed_mbps"`
 	Sessions    int     `json:"sessions"`
-	Config      string  `json:"-"` // Decoded .ovpn content.
+	Config      string  `json:"-"` // Decoded .ovpn content or internal proxy marker.
 }
 
-// fetchNodes fetches and parses the VPN Gate node list. It tries the direct API
-// first, then the mirror if the request fails or returns invalid content. The
-// returned list is sorted by speed in descending order.
+// fetchNodes combines VPN Gate nodes with a bounded set of independently checked
+// public proxy exits. Either source can keep fanout usable if the other is
+// temporarily unavailable; an error is returned only when both sources fail.
 func fetchNodes(timeout time.Duration) ([]Node, error) {
-	return fetchNodesWith(vpngateAPI, timeout)
+	vpnNodes, vpnErr := fetchNodesWith(vpngateAPI, timeout)
+	proxyNodes, proxyErr := fetchFreeProxyNodes(timeout)
+
+	if vpnErr != nil && proxyErr != nil {
+		return nil, fmt.Errorf("VPN Gate failed (%v); free proxy source also failed: %w", vpnErr, proxyErr)
+	}
+	if vpnErr != nil {
+		return proxyNodes, nil
+	}
+	if proxyErr != nil {
+		return vpnNodes, nil
+	}
+	// Keep VPN Gate first for the existing "Any region" behavior. Proxy exits
+	// remain explicitly selectable through their P-XX region labels.
+	return append(vpnNodes, proxyNodes...), nil
 }
 
 // fetchNodesWith accepts the direct URL as an argument so both paths are testable.
