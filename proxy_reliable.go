@@ -79,7 +79,6 @@ func fetchFreeProxyNodesV3(timeout time.Duration) ([]Node, error) {
 				if err == nil {
 					results <- checked{raw: raw, exitIP: ip, latency: time.Since(started)}
 				}
-			}
 		}()
 	}
 	go func() {
@@ -201,10 +200,21 @@ func proxyProtocolPriority(raw string) int {
 func proxyProbeURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err == nil {
-		switch strings.ToLower(u.Scheme) {
+		scheme := strings.ToLower(u.Scheme)
+		// fanout's WARP MASQUE transport is exposed internally as a loopback
+		// SOCKS5 listener. Probe that path with the same HTTPS endpoint that is
+		// known to work through usque, rather than the HTTP probe used for public
+		// SOCKS candidates. This also proves TLS-capable TCP relay before the WARP
+		// exit is marked up.
+		if scheme == "socks5" {
+			if ip := net.ParseIP(u.Hostname()); ip != nil && ip.IsLoopback() {
+				return "https://api.ipify.org"
+			}
+		}
+		switch scheme {
 		case "socks4", "socks5":
-			// Match IPLocate's own validation method for SOCKS proxies. A successful
-			// SOCKS CONNECT to the destination is already a generic TCP relay test.
+			// Match IPLocate's own validation method for public SOCKS proxies. A
+			// successful SOCKS CONNECT is already a generic TCP relay test.
 			return "http://api.iplocate.io/ip"
 		}
 	}
