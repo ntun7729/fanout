@@ -79,6 +79,7 @@ func fetchFreeProxyNodesV3(timeout time.Duration) ([]Node, error) {
 				if err == nil {
 					results <- checked{raw: raw, exitIP: ip, latency: time.Since(started)}
 				}
+			}
 		}()
 	}
 	go func() {
