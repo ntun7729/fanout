@@ -69,7 +69,7 @@ func (t *Tunnel) setupNetns() error {
 	t.teardownNetns()
 
 	if err := run("ip", "netns", "add", ns); err != nil {
-		return err
+		return fmt.Errorf("failed to create network namespace; install full iproute2 and make sure the container permits network namespaces: %w", err)
 	}
 	if err := run("ip", "netns", "exec", ns, "ip", "link", "set", "lo", "up"); err != nil {
 		return err
@@ -271,7 +271,7 @@ func (t *Tunnel) probeExitIP() (string, error) {
 
 func (t *Tunnel) probeExitIPWithTimeout(timeout time.Duration) (string, error) {
 	if isProxyNode(t.Node) {
-		ip, err := probeProxyExit(proxyURLFromNode(t.Node), timeout)
+		ip, err := probeProxyExitCompatible(proxyURLFromNode(t.Node), timeout)
 		if err != nil {
 			return "", fmt.Errorf("failed to query proxy exit IP: %w", err)
 		}

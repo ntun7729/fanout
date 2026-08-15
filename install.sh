@@ -105,7 +105,8 @@ pkg_for() {
     curl)     echo curl ;;
     openssl)  echo openssl ;;
     tar)      echo tar ;;
-    ip)       case "$mgr" in apk) echo iproute2 ;; pacman) echo iproute2 ;; *) echo iproute ;; esac ;;
+    ip)       case "$mgr" in apk|apt-get|pacman) echo iproute2 ;; *) echo iproute ;; esac ;;
+    iproute2) echo iproute2 ;;
     iptables) echo iptables ;;
     unzip)    echo unzip ;;
   esac
@@ -134,14 +135,17 @@ install_pkgs() {
 }
 
 MGR=$(detect_mgr)
-# Debian/Ubuntu use iproute2 while RHEL-family systems use iproute.
-[[ "$MGR" == "apt-get" ]] && iproute_pkg=iproute2 || iproute_pkg=iproute
-
 need_cmd=()
 for c in openvpn curl openssl tar iptables; do
   command -v "$c" >/dev/null || need_cmd+=("$c")
 done
 command -v ip >/dev/null || need_cmd+=(ip)
+
+# Alpine's BusyBox provides an `ip` applet, so command -v ip is not enough.
+# fanout requires the full iproute2 implementation for `ip netns`.
+if [[ "$MGR" == "apk" ]] && ! apk info -e iproute2 >/dev/null 2>&1; then
+  need_cmd+=(iproute2)
+fi
 
 if [[ ${#need_cmd[@]} -gt 0 ]]; then
   echo "      Missing: ${need_cmd[*]}"
@@ -151,7 +155,7 @@ if [[ ${#need_cmd[@]} -gt 0 ]]; then
   fi
   pkgs=()
   for c in "${need_cmd[@]}"; do
-    if [[ "$c" == "ip" ]]; then pkgs+=("$iproute_pkg"); else pkgs+=("$(pkg_for "$c" "$MGR")"); fi
+    pkgs+=("$(pkg_for "$c" "$MGR")")
   done
   echo "      Installing: ${pkgs[*]}"
   install_pkgs "$MGR" "${pkgs[@]}" || {

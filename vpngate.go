@@ -51,13 +51,13 @@ type Node struct {
 	Config      string  `json:"-"` // Decoded .ovpn content or internal proxy marker.
 }
 
-// fetchNodes combines VPN Gate nodes with free proxy exits. Proxy discovery is
-// intentionally separate from live egress validation so a temporary probe
-// failure does not make the Free Proxy source disappear from the UI. Each proxy
-// is still verified before an exit is marked connected.
+// fetchNodes combines VPN Gate nodes with independently validated free proxy
+// exits. A proxy is exposed only after fanout confirms that it can relay traffic
+// from this host, while either source can keep the application usable if the
+// other source is temporarily unavailable.
 func fetchNodes(timeout time.Duration) ([]Node, error) {
 	vpnNodes, vpnErr := fetchNodesWith(vpngateAPI, timeout)
-	proxyNodes, proxyErr := fetchFreeProxyNodesV2(timeout)
+	proxyNodes, proxyErr := fetchFreeProxyNodesV3(timeout)
 
 	if vpnErr != nil && proxyErr != nil {
 		return nil, fmt.Errorf("VPN Gate failed (%v); free proxy source also failed: %w", vpnErr, proxyErr)
