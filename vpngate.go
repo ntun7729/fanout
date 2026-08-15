@@ -39,7 +39,7 @@ func mirrorAccessKey() string {
 }
 
 // Node represents an available exit source. VPN Gate nodes contain an OpenVPN
-// configuration. Free-proxy nodes store a proxy:<url> marker in Config.
+// configuration. Free-proxy and MASQUE nodes store internal markers in Config.
 type Node struct {
 	HostName    string  `json:"hostname"`
 	IP          string  `json:"ip"`
@@ -48,29 +48,32 @@ type Node struct {
 	Ping        int     `json:"ping"`
 	SpeedMbps   float64 `json:"speed_mbps"`
 	Sessions    int     `json:"sessions"`
-	Config      string  `json:"-"` // Decoded .ovpn content or internal proxy marker.
+	Config      string  `json:"-"` // Decoded .ovpn content or an internal transport marker.
 }
 
 // fetchNodes combines VPN Gate nodes with independently validated free proxy
-// exits. A proxy is exposed only after fanout confirms that it can relay traffic
-// from this host, while either source can keep the application usable if the
-// other source is temporarily unavailable.
+// exits and a static WARP MASQUE transport. WARP remains available even if both
+// public node-list sources are temporarily unreachable because its endpoint is
+// discovered by usque from the registered Cloudflare account configuration.
 func fetchNodes(timeout time.Duration) ([]Node, error) {
 	vpnNodes, vpnErr := fetchNodesWith(vpngateAPI, timeout)
 	proxyNodes, proxyErr := fetchFreeProxyNodesV3(timeout)
+	warp := warpMasqueNode()
 
 	if vpnErr != nil && proxyErr != nil {
-		return nil, fmt.Errorf("VPN Gate failed (%v); free proxy source also failed: %w", vpnErr, proxyErr)
+		return []Node{warp}, nil
 	}
 	if vpnErr != nil {
-		return proxyNodes, nil
+		return append(proxyNodes, warp), nil
 	}
 	if proxyErr != nil {
-		return vpnNodes, nil
+		return append(vpnNodes, warp), nil
 	}
 	// Keep VPN Gate first for the existing "Any region" behavior. Proxy exits
-	// remain explicitly selectable through their P-XX region labels.
-	return append(vpnNodes, proxyNodes...), nil
+	// remain explicitly selectable through their P-XX region labels, and WARP is
+	// listed last as an explicit transport option with automatic egress location.
+	nodes := append(vpnNodes, proxyNodes...)
+	return append(nodes, warp), nil
 }
 
 // fetchNodesWith accepts the direct URL as an argument so both paths are testable.
