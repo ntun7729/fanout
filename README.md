@@ -2,42 +2,47 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Turn public VPN Gate nodes into local SOCKS5 ports: one port, one exit IP.
-Then attach a proxy node link to each exit, so clients connected to different ports leave through different countries.
+Turn multiple public exit sources into local SOCKS5 ports: one port, one exit IP.
+fanout supports VPN Gate/OpenVPN exits, independently verified free HTTP/SOCKS proxies, and Cloudflare WARP over MASQUE/TCP.
+Then attach a proxy node link to each exit, so clients connected to different ports leave through different egress paths.
 
 There are three ways to manage node links. If 3x-ui or xray-cf-lite is installed on the same machine, fanout takes over their inbounds.
 If neither is installed, fanout runs Xray itself. Creating nodes, editing nodes, and exporting links are all handled from the same interface.
 
 ![Main dashboard](https://images.joeyblog.net/2026/7/27/fanout-dashboard.png)
 
-Four tunnels can run on one machine, with four ports mapped to four countries. The host machine's own IP and routing remain unaffected:
+Four exits can run on one machine, with four ports mapped to separate egress paths. The host machine's own IP and routing remain unaffected:
 
 ![Exit verification](https://images.joeyblog.net/2026/7/26/fanout-6-exit-ip.png)
 
 ## How it works
 
-Each node runs inside its own network namespace, where the official OpenVPN client is started.
-SOCKS5 listens on the host, and outbound connections use `setns` to enter the matching network namespace.
+fanout selects an outbound transport per exit while keeping the public SOCKS5 listener on the host:
 
-This keeps VPN route changes isolated to each namespace instead of affecting the host network.
-Multiple nodes do not interfere with one another, and each gets its own exit IP.
+- **VPN Gate** runs the official OpenVPN client inside a dedicated network namespace. SOCKS5 connections enter that namespace with `setns`, so VPN route changes never replace the host's default route.
+- **Free proxies** are validated before being listed and are used as upstream HTTP/SOCKS relays without changing host routes.
+- **WARP MASQUE** launches [usque](https://github.com/Diniboy1123/usque) on loopback and chains fanout's SOCKS5 traffic through it. fanout uses usque's HTTP/2 mode, so the WARP/MASQUE connection runs over TCP+TLS on port 443 and does not require `/dev/net/tun`.
 
 ```
-Client --> Host SOCKS5 :random-port --> netns foN --> openvpn --> VPN Gate node
+VPN Gate: Client -> fanout SOCKS5 -> netns foN -> OpenVPN -> VPN Gate
+Proxy:    Client -> fanout SOCKS5 -> validated upstream proxy -> Internet
+WARP:     Client -> fanout SOCKS5 -> usque SOCKS5 -> MASQUE HTTP/2/TCP 443 -> WARP
 ```
+
+Each fanout exit keeps its own randomly allocated SOCKS5 port and credentials.
 
 ## Installation
 
-Requires root on Linux because network namespaces are used.
+fanout itself runs as root because VPN Gate exits use network namespaces and iptables.
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/ntun7729/fanout/main/install.sh)
 ```
 
-The installer automatically downloads the prebuilt binary for the current architecture. You can also clone the repository and run the same script from the source directory; in that case it builds from source and requires Go 1.21+.
+The installer automatically downloads the prebuilt binary for the current architecture. You can also clone the repository and run the same script from the source directory; in that case it builds from source and requires Go 1.23+.
 
 Dependencies such as OpenVPN, curl, OpenSSL, iproute, and iptables are installed automatically for supported distributions.
-The installer recognizes apt, dnf, yum, pacman, apk, and zypper. If 3x-ui is not installed, it also downloads Xray into `/var/lib/fanout/bin/`. If 3x-ui is installed, that step is skipped and the panel manages the inbounds.
+The installer recognizes apt, dnf, yum, pacman, apk, and zypper. If 3x-ui is not installed, it also downloads Xray into `/var/lib/fanout/bin/`. The installer also downloads the tested usque release into `/var/lib/fanout/bin/usque` for WARP MASQUE support. If 3x-ui is installed, Xray remains panel-managed.
 
 The service can be installed with either systemd or OpenRC and is enabled to start automatically at boot.
 
@@ -48,8 +53,33 @@ apk add bash curl
 bash <(curl -fsSL https://raw.githubusercontent.com/ntun7729/fanout/main/install.sh)
 ```
 
-fanout runs OpenVPN inside network namespaces, so the **host must expose `/dev/net/tun`**.
-Many LXC containers do not have this permission. If `ls /dev/net/tun` shows that it does not exist and `mknod` returns `Operation not permitted`, fanout cannot run on that machine regardless of distribution.
+### LXC and `/dev/net/tun`
+
+VPN Gate/OpenVPN exits require the host to expose `/dev/net/tun`.
+Many unprivileged LXC containers do not have this permission. If `ls /dev/net/tun` shows that it does not exist and `mknod` returns `Operation not permitted`, VPN Gate exits cannot run in that container.
+
+**WARP MASQUE and public-proxy exits do not require `/dev/net/tun`.** WARP MASQUE is therefore useful on containers where the provider removed TUN access but normal outbound TCP 443 still works.
+
+### Enable WARP MASQUE
+
+usque needs a one-time Cloudflare WARP registration. fanout does not silently accept Cloudflare's terms on your behalf. After installation, register once if no existing usque configuration is present:
+
+```bash
+mkdir -p /var/lib/fanout/usque
+cd /var/lib/fanout/usque
+/var/lib/fanout/bin/usque register --accept-tos
+```
+
+fanout looks for the WARP configuration in this order:
+
+1. `FANOUT_USQUE_CONFIG`
+2. `/var/lib/fanout/usque/config.json` (or `<WORK_DIR>/usque/config.json`)
+3. `/var/lib/usque/config.json`
+4. `/etc/usque/config.json`
+
+The usque binary can be overridden with `FANOUT_USQUE_BIN`. fanout also recognizes `/opt/usque/usque`, `/usr/local/bin/usque`, and `usque` from `PATH`.
+
+Do not publish `config.json`; it contains WARP device credentials.
 
 After installation, run `f` to open the management menu:
 
@@ -67,14 +97,16 @@ Requests using the wrong path always receive a 404, which prevents simple port s
 
 ## Usage
 
-The interface is organized around **exits**. Each row represents one tunnel plus the node links attached to it.
+The interface is organized around **exits**. Each row represents one outbound transport plus the node links attached to it.
 
-Click **New Exit**, choose a region and quantity, then select an existing node as the template. fanout starts the tunnels in parallel, clones a node link for each exit, binds everything together, and reports progress for each target.
+Click **New Exit**, choose a region and quantity, then select an existing node as the template. fanout starts the exits in parallel, clones a node link for each exit, binds everything together, and reports progress for each target.
 
 ![New exit](https://images.joeyblog.net/2026/7/27/fanout-wizard.png)
 
-Each exit row has two actions on the right: replace the VPN node, which changes the exit IP while keeping the port unchanged, or stop the exit.
-Because the port stays the same when a node is replaced, already distributed client configurations do not need to be changed.
+VPN Gate regions use normal country codes. Validated public proxies use `P-XX` region labels. WARP appears as the `WARP` region and uses **Cloudflare WARP (MASQUE TCP)**. WARP chooses its actual egress location automatically; fanout does not provide country selection for WARP.
+
+Each exit row has actions to replace the selected node when alternatives exist or stop the exit.
+Because the public fanout port stays the same during reconnects, already distributed client configurations do not need to be changed.
 
 Click a node name to open its details. You can change its port or note, enable or disable it, manage clients, and bind it to another exit:
 
@@ -138,23 +170,26 @@ f uninstall  # uninstall
 
 Tunnel state is stored in `/var/lib/fanout/state.json`. Tunnels are restored automatically after restart and keep the same ports.
 
-The health check runs every 10 seconds and verifies that each current exit IP still matches the IP recorded when its tunnel was established.
-This is more reliable than checking connectivity alone because a dead OpenVPN process can leave its network namespace able to reach the internet through host NAT.
-After two consecutive mismatches, fanout automatically selects another node and reconnects. The slot and port remain unchanged, and node links previously pointing to that exit are rebound automatically.
+The health check runs every 10 seconds and verifies that each exit can still reach the internet through its selected transport. VPN Gate and public-proxy exits are also checked against their recorded egress IP. WARP may rotate its egress IP while remaining healthy, so fanout accepts a valid WARP response and refreshes the displayed IP. After two consecutive failures, fanout reconnects while keeping the slot and public SOCKS5 port unchanged.
+
+For WARP troubleshooting, each exit writes usque logs to `/var/lib/fanout/foN-usque.log` (or the configured work directory).
 
 ## Known limitations
 
-- TCP forwarding only. If SOCKS5 receives a domain name, it is resolved on the host. UDP/DNS is not tunneled.
+- TCP forwarding only. fanout's public SOCKS5 server accepts CONNECT-style TCP traffic; it does not expose UDP forwarding.
 - VPN Gate is made up of volunteer nodes, and a significant number may be offline or full (`AUTH_FAILED`). If a node cannot connect at startup, fanout automatically tries other candidates from the same region, up to six nodes.
+- Free public proxies are inherently unstable even though fanout validates them before listing them.
+- WARP MASQUE uses an unofficial open-source WARP implementation (usque), requires a Cloudflare WARP registration, and does not provide country selection. Cloudflare selects the egress location.
 - The management interface uses a random path and password but does not provide HTTPS itself. If it is exposed publicly, placing it behind a reverse proxy with HTTPS is recommended.
 
 ## License
 
 [MIT](LICENSE).
 
-Nodes come from [VPN Gate](https://www.vpngate.net/), an academic experimental project operated by the University of Tsukuba.
-This tool only consumes VPN Gate's public node list and connects using the official OpenVPN client. It does not modify or proxy the VPN Gate service.
-Use it in accordance with VPN Gate's terms and the laws applicable in your location.
+VPN Gate nodes come from [VPN Gate](https://www.vpngate.net/), an academic experimental project operated by the University of Tsukuba.
+fanout only consumes VPN Gate's public node list and connects using the official OpenVPN client. It does not modify or proxy the VPN Gate service.
+
+WARP MASQUE support invokes the separate [usque](https://github.com/Diniboy1123/usque) project. usque is not part of fanout and is not an official Cloudflare client. Use WARP and every third-party exit source in accordance with its applicable terms and the laws in your location.
 
 ## Community
 
