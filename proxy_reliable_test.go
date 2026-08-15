@@ -7,7 +7,8 @@ import (
 
 func TestProxyProbeURL(t *testing.T) {
 	cases := map[string]string{
-		"socks5://127.0.0.1:1080": "http://api.iplocate.io/ip",
+		"socks5://127.0.0.1:1080": "https://api.ipify.org",
+		"socks5://4.4.4.4:1080":   "http://api.iplocate.io/ip",
 		"socks4://127.0.0.1:1080": "http://api.iplocate.io/ip",
 		"http://127.0.0.1:8080":   "https://api.iplocate.io/ip",
 		"https://127.0.0.1:8443":  "https://api.iplocate.io/ip",
