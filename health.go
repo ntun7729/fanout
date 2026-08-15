@@ -2,9 +2,6 @@ package main
 
 import (
 	"log"
-	"os/exec"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -14,9 +11,9 @@ const (
 	healthTimeout  = 6 * time.Second
 )
 
-// WatchHealth periodically checks whether each tunnel still reaches the
-// internet through its VPN. VPN Gate nodes are volunteer-operated and can
-// disappear at any time, so failed tunnels are automatically reconnected.
+// WatchHealth periodically checks whether each exit still reaches the internet
+// through its selected VPN or proxy. Failed exits automatically switch to another
+// candidate in the same region while preserving their local SOCKS5 port.
 func (m *Manager) WatchHealth() {
 	fails := map[int]int{}
 
@@ -43,24 +40,12 @@ func (m *Manager) WatchHealth() {
 	}
 }
 
-// tunnelHealthy verifies that a tunnel is still actually using the VPN.
-//
-// Connectivity alone is not enough: the network namespace can still reach the
-// internet through host NAT after OpenVPN dies, but its exit IP then becomes
-// the host IP. Compare the current exit IP with the one recorded at tunnel startup.
+// tunnelHealthy verifies that the selected transport still produces the same
+// public exit IP recorded at startup. This catches both dead public proxies and
+// OpenVPN processes that have fallen back to the host route.
 func (m *Manager) tunnelHealthy(t *Tunnel) bool {
-	out, err := exec.Command("ip", "netns", "exec", t.nsName(),
-		"curl", "-s", "--max-time", strconv.Itoa(int(healthTimeout.Seconds())),
-		"http://api.ipify.org").Output()
-	if err != nil {
-		return false
-	}
-	got := strings.TrimSpace(string(out))
-	if got == "" {
-		return false
-	}
-	// A changed exit IP means the VPN is gone and traffic has fallen back to the host.
-	return got == t.ExitIP
+	got, err := t.probeExitIPWithTimeout(healthTimeout)
+	return err == nil && got != "" && got == t.ExitIP
 }
 
 // reconnect moves a tunnel to another node while keeping its slot and port so

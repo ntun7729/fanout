@@ -1,6 +1,7 @@
 name: release
 
 on:
+  pull_request:
   push:
     tags:
       - 'v*'
@@ -16,7 +17,7 @@ permissions:
   contents: write
 
 env:
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event_name == 'pull_request' && 'ci' || github.ref_name }}
 
 jobs:
   build:
