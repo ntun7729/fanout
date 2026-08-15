@@ -12,8 +12,8 @@ const (
 )
 
 // WatchHealth periodically checks whether each exit still reaches the internet
-// through its selected VPN or proxy. Failed exits automatically switch to another
-// candidate in the same region while preserving their local SOCKS5 port.
+// through its selected VPN, proxy, or MASQUE transport. Failed exits automatically
+// reconnect while preserving their local SOCKS5 port.
 func (m *Manager) WatchHealth() {
 	fails := map[int]int{}
 
@@ -40,12 +40,20 @@ func (m *Manager) WatchHealth() {
 	}
 }
 
-// tunnelHealthy verifies that the selected transport still produces the same
-// public exit IP recorded at startup. This catches both dead public proxies and
-// OpenVPN processes that have fallen back to the host route.
+// tunnelHealthy verifies that the selected transport still produces a valid
+// public exit. VPN Gate and public-proxy exits are expected to keep the same IP;
+// WARP may rotate egress within the same healthy MASQUE session, so any valid
+// WARP response is accepted and the displayed exit IP is refreshed.
 func (m *Manager) tunnelHealthy(t *Tunnel) bool {
 	got, err := t.probeExitIPWithTimeout(healthTimeout)
-	return err == nil && got != "" && got == t.ExitIP
+	if err != nil || got == "" {
+		return false
+	}
+	if isMasqueNode(t.Node) {
+		t.ExitIP = got
+		return true
+	}
+	return got == t.ExitIP
 }
 
 // reconnect moves a tunnel to another node while keeping its slot and port so
@@ -63,6 +71,8 @@ func (m *Manager) reconnect(t *Tunnel, oldHost string) {
 		_ = t.ovpn.Process.Kill()
 		t.ovpn = nil
 	}
+	// teardownNetns is also the common child-transport cleanup path and stops
+	// a running usque process for WARP MASQUE exits.
 	t.teardownNetns()
 
 	go func() {
