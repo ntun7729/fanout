@@ -21,8 +21,8 @@ type SocksCred struct {
 	Pass string `json:"pass"`
 }
 
-// Tunnel is one running exit: either an OpenVPN network namespace or an upstream
-// public proxy, plus a local authenticated SOCKS5 port.
+// Tunnel is one running exit: an OpenVPN network namespace, an upstream public
+// proxy, or a WARP MASQUE process, plus a local authenticated SOCKS5 port.
 type Tunnel struct {
 	Slot   int       `json:"slot"`
 	Port   int       `json:"port"`
@@ -33,10 +33,12 @@ type Tunnel struct {
 	Since  time.Time `json:"since"`
 	Cred   SocksCred `json:"cred"`
 
-	ns       string
-	listener net.Listener
-	ovpn     *exec.Cmd
-	mu       sync.Mutex
+	ns          string
+	listener    net.Listener
+	ovpn        *exec.Cmd
+	masque      *exec.Cmd
+	masquePort  int
+	mu          sync.Mutex
 }
 
 func (t *Tunnel) nsName() string { return fmt.Sprintf("fo%d", t.Slot) }
@@ -56,9 +58,9 @@ func runQuiet(name string, args ...string) {
 }
 
 // setupNetns creates the network namespace and veth link, then configures NAT and forwarding.
-// Proxy exits do not need a namespace because their outbound path is selected per TCP connection.
+// Proxy and MASQUE exits do not need a namespace because their outbound path is selected per TCP connection.
 func (t *Tunnel) setupNetns() error {
-	if isProxyNode(t.Node) {
+	if isProxyNode(t.Node) || isMasqueNode(t.Node) {
 		t.teardownNetns()
 		return nil
 	}
@@ -134,6 +136,10 @@ func ensureRuleInsert(table, chain string, spec ...string) {
 }
 
 func (t *Tunnel) teardownNetns() {
+	// MASQUE runs in the host namespace, but teardownNetns is the common transport
+	// cleanup path used after failed attempts and reconnects, so stop it here too.
+	t.stopMasque()
+
 	ns, sub := t.nsName(), t.subnet()
 	cidr := sub + ".0/30"
 	runQuiet("ip", "netns", "del", ns)
@@ -143,11 +149,15 @@ func (t *Tunnel) teardownNetns() {
 	runQuiet("iptables", "-w", "5", "-D", "FORWARD", "-d", cidr, "-j", "ACCEPT")
 }
 
-// startOpenVPN starts OpenVPN inside the namespace and waits for tun0 to receive an address.
-// Proxy exits have no OpenVPN process; their live check happens in probeExitIP.
+// startOpenVPN starts the transport selected by the node. VPN Gate uses OpenVPN
+// in a namespace, public proxies need no child process, and WARP launches usque
+// in SOCKS5 mode with MASQUE carried over HTTP/2 + TCP/TLS.
 func (t *Tunnel) startOpenVPN(dir string) error {
 	if isProxyNode(t.Node) {
 		return nil
+	}
+	if isMasqueNode(t.Node) {
+		return t.startMasque(dir)
 	}
 
 	ns := t.nsName()
@@ -195,8 +205,8 @@ func (t *Tunnel) startOpenVPN(dir string) error {
 }
 
 // serve listens for SOCKS5 on the host. Each connection resolves its outbound
-// dialer at accept time so automatic swaps can switch between proxy endpoints
-// without rebinding the public SOCKS5 listener.
+// dialer at accept time so automatic swaps can switch between transports or
+// endpoints without rebinding the public SOCKS5 listener.
 func (t *Tunnel) serve() error {
 	// Keep the assigned port whenever possible so distributed client configuration remains valid.
 	var ln net.Listener
@@ -236,9 +246,21 @@ func (t *Tunnel) serve() error {
 	return nil
 }
 
-// dialOutbound selects either the current upstream public proxy or the tunnel's
-// network namespace. Reading t.Node per connection makes proxy swaps immediate.
+// dialOutbound selects the current upstream transport. Public-proxy and WARP
+// exits chain through a SOCKS/HTTP upstream; VPN Gate enters the tunnel's
+// network namespace. Reading t.Node per connection makes swaps immediate.
 func (t *Tunnel) dialOutbound(network, addr string) (net.Conn, error) {
+	if isMasqueNode(t.Node) {
+		raw, err := t.masqueProxyURL()
+		if err != nil {
+			return nil, err
+		}
+		dial, err := upstreamProxyDialer(raw, 20*time.Second)
+		if err != nil {
+			return nil, err
+		}
+		return dial(network, addr)
+	}
 	if isProxyNode(t.Node) {
 		dial, err := upstreamProxyDialer(proxyURLFromNode(t.Node), 20*time.Second)
 		if err != nil {
@@ -270,6 +292,17 @@ func (t *Tunnel) probeExitIP() (string, error) {
 }
 
 func (t *Tunnel) probeExitIPWithTimeout(timeout time.Duration) (string, error) {
+	if isMasqueNode(t.Node) {
+		raw, err := t.masqueProxyURL()
+		if err != nil {
+			return "", err
+		}
+		ip, err := probeProxyExitCompatible(raw, timeout)
+		if err != nil {
+			return "", fmt.Errorf("failed to query WARP MASQUE exit IP: %w", err)
+		}
+		return ip, nil
+	}
 	if isProxyNode(t.Node) {
 		ip, err := probeProxyExitCompatible(proxyURLFromNode(t.Node), timeout)
 		if err != nil {

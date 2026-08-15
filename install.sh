@@ -58,7 +58,7 @@ svc_install() {
     cat > /etc/init.d/fanout <<INITEOF
 #!/sbin/openrc-run
 name="fanout"
-description="fanout - VPN Gate exit fan-out gateway"
+description="fanout - multi-exit gateway"
 command="${BIN}"
 command_args="-dir ${WORK_DIR}"
 command_background=true
@@ -95,7 +95,7 @@ svc_logs_hint() {
   [[ "$INIT_SYS" == systemd ]] && echo "journalctl -u fanout -n 30" || echo "cat /var/log/fanout.log"
 }
 
-echo "[1/6] Checking dependencies"
+echo "[1/7] Checking dependencies"
 
 # Package names vary between distributions, so map them by package manager.
 pkg_for() {
@@ -164,7 +164,7 @@ if [[ ${#need_cmd[@]} -gt 0 ]]; then
   }
 fi
 
-echo "[2/6] Installing fanout"
+echo "[2/7] Installing fanout"
 REPO="${REPO:-ntun7729/fanout}"
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -192,7 +192,67 @@ else
   rm -rf "$TMP"
 fi
 
-echo "[3/6] Preparing Xray"
+echo "[3/7] Preparing WARP MASQUE"
+# WARP MASQUE is provided by usque. It exposes WARP as a loopback SOCKS5 proxy
+# and can carry MASQUE over HTTP/2 + TCP/TLS, so it does not require /dev/net/tun.
+mkdir -p "${WORK_DIR}/bin"
+USQUE_BIN="${WORK_DIR}/bin/usque"
+USQUE_VERSION="4.2.1"
+case "$GOARCH" in
+  amd64)
+    USQUE_ASSET="usque_${USQUE_VERSION}_linux_amd64.zip"
+    USQUE_SHA256="4117e20695078af9c11edecd1a826c009bbc7ea0b7f64458612b4198910bc313"
+    ;;
+  arm64)
+    USQUE_ASSET="usque_${USQUE_VERSION}_linux_arm64.zip"
+    USQUE_SHA256="c88b061c2a567f30813d7505637d1fb6fe7ec5898b5b61fd05122409fa5ad925"
+    ;;
+esac
+
+if [[ -x "$USQUE_BIN" ]]; then
+  echo "      Existing $("$USQUE_BIN" version 2>/dev/null | head -1)"
+else
+  UT=$(mktemp -d)
+  UURL="https://github.com/Diniboy1123/usque/releases/download/v${USQUE_VERSION}/${USQUE_ASSET}"
+  echo "      Downloading usque v${USQUE_VERSION} (${GOARCH})"
+  if curl -fsSL "$UURL" -o "$UT/usque.zip"; then
+    GOT_SHA=$(openssl dgst -sha256 "$UT/usque.zip" | awk '{print $NF}')
+    if [[ "$GOT_SHA" != "$USQUE_SHA256" ]]; then
+      echo "      usque checksum mismatch; WARP MASQUE was not installed." >&2
+    else
+      EXTRACTED=0
+      if command -v unzip >/dev/null; then
+        unzip -qo "$UT/usque.zip" -d "$UT" && EXTRACTED=1
+      elif command -v busybox >/dev/null && busybox unzip -h >/dev/null 2>&1; then
+        busybox unzip -qo "$UT/usque.zip" -d "$UT" && EXTRACTED=1
+      elif [[ -n "$MGR" ]]; then
+        install_pkgs "$MGR" unzip >/dev/null 2>&1 || true
+        command -v unzip >/dev/null && unzip -qo "$UT/usque.zip" -d "$UT" && EXTRACTED=1
+      fi
+      if [[ $EXTRACTED -eq 1 && -f "$UT/usque" ]]; then
+        install -m 755 "$UT/usque" "$USQUE_BIN"
+        echo "      $("$USQUE_BIN" version 2>/dev/null | head -1)"
+      else
+        echo "      Could not extract usque; WARP MASQUE will be unavailable until it is installed manually." >&2
+      fi
+    fi
+  else
+    echo "      usque download failed; other fanout exit types remain available." >&2
+  fi
+  rm -rf "$UT"
+fi
+
+if [[ -x "$USQUE_BIN" ]]; then
+  if [[ -f "${WORK_DIR}/usque/config.json" || -f /var/lib/usque/config.json ]]; then
+    echo "      WARP registration config detected"
+  else
+    echo "      WARP binary installed. Before the first WARP exit, register once:"
+    echo "        mkdir -p ${WORK_DIR}/usque && cd ${WORK_DIR}/usque"
+    echo "        ${USQUE_BIN} register --accept-tos"
+  fi
+fi
+
+echo "[4/7] Preparing Xray"
 # If no supported panel is available, fanout runs Xray itself. Keep the binary
 # under WORK_DIR/bin to avoid conflicting with another Xray installation.
 mkdir -p "${WORK_DIR}/bin"
@@ -232,7 +292,7 @@ else
   rm -rf "$XT"
 fi
 
-echo "[4/6] Enabling forwarding"
+echo "[5/7] Enabling forwarding"
 sysctl -qw net.ipv4.ip_forward=1
 grep -q '^net.ipv4.ip_forward=1' /etc/sysctl.conf 2>/dev/null \
   || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
@@ -245,7 +305,7 @@ if ! iptables -C FORWARD -d 10.99.0.0/16 -j ACCEPT 2>/dev/null; then
 fi
 command -v netfilter-persistent >/dev/null && netfilter-persistent save >/dev/null 2>&1 || true
 
-echo "[5/6] Installing service"
+echo "[6/7] Installing service"
 # Management menu.
 if [[ -f f.sh ]]; then
   install -m 755 f.sh /usr/local/bin/f
@@ -261,7 +321,7 @@ seed_settings
 svc_install
 svc_enable_start
 
-echo "[6/6] Ready"
+echo "[7/7] Ready"
 sleep 3
 svc_is_active && echo "      Service is running (${INIT_SYS})" || {
   echo "      Service failed to start. Check $(svc_logs_hint)" >&2
